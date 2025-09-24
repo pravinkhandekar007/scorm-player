@@ -125,6 +125,7 @@
                 formData.append('scormFile', file);
                 formData.append('userId', getUserId()); // You'll need to implement user authentication
             }
+            {
                 progressText.textContent = 'Processing SCORM package...';
                 progressBar.style.width = '50%';
 const { data: { session } } = await supabase.auth.getSession();
