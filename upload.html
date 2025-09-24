@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCORM Package Upload</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 20px; 
+        }
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            transition: border-color 0.3s;
+        }
+        .upload-area.dragover {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+        }
+        .btn {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .btn:hover { background-color: #0056b3; }
+        .progress {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #007bff;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .result {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .success { background-color: #d4edda; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+    <h1>🎓 SCORM Course Upload</h1>
+    <p>Upload your SCORM package (.zip file) to create a shareable course link.</p>
+
+    <div class="upload-area" id="uploadArea">
+        <h3>📁 Drop your SCORM package here</h3>
+        <p>or</p>
+        <input type="file" id="fileInput" accept=".zip" style="display: none;">
+        <button class="btn" onclick="document.getElementById('fileInput').click()">
+            Choose File
+        </button>
+    </div>
+
+    <div id="uploadProgress" style="display: none;">
+        <div class="progress">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <p id="progressText">Uploading...</p>
+    </div>
+
+    <div id="result"></div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const progressDiv = document.getElementById('uploadProgress');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const result = document.getElementById('result');
+
+        // Drag and drop functionality
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileUpload(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileUpload(e.target.files[0]);
+            }
+        });
+
+        async function handleFileUpload(file) {
+            if (!file.name.toLowerCase().endsWith('.zip')) {
+                showResult('Please select a ZIP file containing your SCORM package.', 'error');
+                return;
+            }
+
+            progressDiv.style.display = 'block';
+            result.innerHTML = '';
+
+            try {
+                const formData = new FormData();
+                formData.append('scormFile', file);
+                formData.append('userId', getUserId()); // You'll need to implement user authentication
+
+                progressText.textContent = 'Processing SCORM package...';
+                progressBar.style.width = '50%';
+
+                const response = await fetch('/functions/v1/process-scorm-upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                progressBar.style.width = '100%';
+                progressText.textContent = 'Upload complete!';
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showResult(
+                        `✅ Course uploaded successfully!<br>
+                         <strong>Share URL:</strong> <a href="${data.shareUrl}" target="_blank">${data.shareUrl}</a><br>
+                         <button class="btn" onclick="copyToClipboard('${data.shareUrl}')">Copy Link</button>`,
+                        'success'
+                    );
+                } else {
+                    throw new Error(data.error || 'Upload failed');
+                }
+
+            } catch (error) {
+                showResult(`❌ Error: ${error.message}`, 'error');
+            } finally {
+                progressDiv.style.display = 'none';
+            }
+        }
+
+        function showResult(message, type) {
+            result.innerHTML = `<div class="result ${type}">${message}</div>`;
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Link copied to clipboard!');
+            });
+        }
+
+        function getUserId() {
+            // Implement proper user authentication
+            // For now, return a temporary ID
+            let userId = localStorage.getItem('temp_user_id');
+            if (!userId) {
+                userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem('temp_user_id', userId);
+            }
+            return userId;
+        }
+    </script>
+</body>
+</html>
