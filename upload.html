@@ -137,6 +137,7 @@
                 progressText.textContent = 'Upload complete!';
 
                 const data = await response.json();
+                console.log('Upload response data:', data);
 
                 if (data.success) {
                     showResult(
@@ -150,6 +151,7 @@
                 }
 
             } catch (error) {
+                console.error('Upload error:', error);
                 showResult(`❌ Error: ${error.message}`, 'error');
             } finally {
                 progressDiv.style.display = 'none';
