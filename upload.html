@@ -173,9 +173,11 @@
         }
 
         function getUserId() {
+    // Implement proper user authentication
+    // For now, return a temporary ID
     let userId = localStorage.getItem('temp_user_id');
     if (!userId) {
-        userId = crypto.randomUUID(); // generates a proper UUID
+        userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
         localStorage.setItem('temp_user_id', userId);
     }
     return userId;
