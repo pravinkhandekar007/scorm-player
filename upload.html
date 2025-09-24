@@ -128,7 +128,7 @@
                 progressText.textContent = 'Processing SCORM package...';
                 progressBar.style.width = '50%';
 
-                const response = await fetch('https://kfksfnzpudycqbcftrev.functions.supabase.co/process-scorm-upload', {
+                const response = await fetch('https://kfksfnzpudycqbcftrev.supabase.co/functions/v1/process-scorm-upload', {
                     method: 'POST',
                     body: formData
                 });
