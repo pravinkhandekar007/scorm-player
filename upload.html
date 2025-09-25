@@ -81,21 +81,31 @@
   const result = document.getElementById("result");
 
   async function checkAuth() {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      authMessage.textContent = `Logged in as ${session.user.email}`;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) {
+    // Email verification check
+    if (!session.user.email_confirmed_at) {
+      authMessage.textContent = "Please verify your email before uploading. Check your inbox and click the link.";
       signupBtn.style.display = "none";
       loginBtn.style.display = "none";
       logoutBtn.style.display = "inline-block";
-      uploadArea.style.display = "block";
-    } else {
-      authMessage.textContent = "Not logged in";
-      signupBtn.style.display = "inline-block";
-      loginBtn.style.display = "inline-block";
-      logoutBtn.style.display = "none";
       uploadArea.style.display = "none";
+      return;
     }
+    // If verified, allow upload
+    authMessage.textContent = `Logged in as ${session.user.email}`;
+    signupBtn.style.display = "none";
+    loginBtn.style.display = "none";
+    logoutBtn.style.display = "inline-block";
+    uploadArea.style.display = "block";
+  } else {
+    authMessage.textContent = "Not logged in";
+    signupBtn.style.display = "inline-block";
+    loginBtn.style.display = "inline-block";
+    logoutBtn.style.display = "none";
+    uploadArea.style.display = "none";
   }
+}
 
   signupBtn.addEventListener("click", async () => {
     const email = emailInput.value;
