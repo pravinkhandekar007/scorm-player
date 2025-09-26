@@ -175,13 +175,21 @@
 
       const data = await response.json();
       if (data.success) {
-        showResult(
-          `✅ Course uploaded successfully!<br>
-           <strong>Share URL:</strong> <a href="${data.shareUrl}" target="_blank">${data.shareUrl}</a><br>
-           <button class="btn" onclick="copyToClipboard('${data.shareUrl}')">Copy Link</button>`,
-          "success"
-        );
-      } else {
+  // Extract course slug from the old shareUrl (last segment of URL path)
+  const oldUrl = data.shareUrl;
+  const courseSlug = oldUrl.substring(oldUrl.lastIndexOf('/') + 1);
+
+  // Construct new URL with query parameter
+  const newShareUrl = `https://pravinkhandekar007.github.io/scorm-player.html?course=${courseSlug}`;
+
+  showResult(
+    `✅ Course uploaded successfully!<br>
+     <strong>Share URL:</strong> <a href="${newShareUrl}" target="_blank">${newShareUrl}</a><br>
+     <button class="btn" onclick="copyToClipboard('${newShareUrl}')">Copy Link</button>`,
+    "success"
+  );
+}
+ else {
         throw new Error(data.error || "Upload failed");
       }
     } catch (error) {
