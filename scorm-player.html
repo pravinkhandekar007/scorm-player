@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>SCORM Player</title>
     <style>
         body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
@@ -21,9 +21,12 @@
         <iframe id="content-frame" style="display: none;"></iframe>
     </div>
 
-    <script src="scorm-api.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/supabase.min.js"></script>
     <script>
-        // Initialize SCORM player
+        const SUPABASE_URL = "https://kfksfnzpudycqbcftrev.supabase.co";
+        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
         class ScormPlayer {
             constructor(courseSlug) {
                 this.courseSlug = courseSlug;
@@ -57,58 +60,23 @@
             }
 
             setupAPI() {
-                // Create SCORM 1.2 API
                 window.API = {
-                    LMSInitialize: (param) => {
-                        console.log("LMSInitialize called");
-                        return "true";
-                    },
-
-                    LMSFinish: (param) => {
-                        console.log("LMSFinish called");
-                        this.saveCMIData();
-                        return "true";
-                    },
-
-                    LMSGetValue: (element) => {
-                        console.log("LMSGetValue:", element);
-                        return this.cmiData[element] || "";
-                    },
-
-                    LMSSetValue: (element, value) => {
-                        console.log("LMSSetValue:", element, value);
-                        this.cmiData[element] = value;
-                        return "true";
-                    },
-
-                    LMSCommit: (param) => {
-                        console.log("LMSCommit called");
-                        this.saveCMIData();
-                        return "true";
-                    },
-
+                    LMSInitialize: () => { console.log("LMSInitialize called"); return "true"; },
+                    LMSFinish: () => { console.log("LMSFinish called"); this.saveCMIData(); return "true"; },
+                    LMSGetValue: (element) => { console.log("LMSGetValue:", element); return this.cmiData[element] || ""; },
+                    LMSSetValue: (element, value) => { console.log("LMSSetValue:", element, value); this.cmiData[element] = value; return "true"; },
+                    LMSCommit: () => { console.log("LMSCommit called"); this.saveCMIData(); return "true"; },
                     LMSGetLastError: () => "0",
-                    LMSGetErrorString: (errorCode) => "No Error",
-                    LMSGetDiagnostic: (param) => ""
+                    LMSGetErrorString: () => "No Error",
+                    LMSGetDiagnostic: () => ""
                 };
 
-                // Create SCORM 2004 API
                 window.API_1484_11 = {
-                    Initialize: (param) => {
-                        console.log("Initialize called");
-                        return "true";
-                    },
-
-                    Terminate: (param) => {
-                        console.log("Terminate called");
-                        this.saveCMIData();
-                        return "true";
-                    },
-
+                    Initialize: () => { console.log("Initialize called"); return "true"; },
+                    Terminate: () => { console.log("Terminate called"); this.saveCMIData(); return "true"; },
                     GetValue: (element) => {
                         console.log("GetValue:", element);
-                        // Map SCORM 2004 elements to 1.2 format
-                        const scorm2004To12 = {
+                        const map = {
                             "cmi.completion_status": "cmi.core.lesson_status",
                             "cmi.learner_id": "cmi.core.learner_id",
                             "cmi.learner_name": "cmi.core.learner_name",
@@ -117,15 +85,11 @@
                             "cmi.score.max": "cmi.core.score.max",
                             "cmi.score.min": "cmi.core.score.min"
                         };
-                        
-                        const mappedElement = scorm2004To12[element] || element;
-                        return this.cmiData[mappedElement] || "";
+                        return this.cmiData[map[element]] || "";
                     },
-
                     SetValue: (element, value) => {
                         console.log("SetValue:", element, value);
-                        // Map SCORM 2004 elements to 1.2 format
-                        const scorm2004To12 = {
+                        const map = {
                             "cmi.completion_status": "cmi.core.lesson_status",
                             "cmi.learner_id": "cmi.core.learner_id",
                             "cmi.learner_name": "cmi.core.learner_name",
@@ -134,81 +98,68 @@
                             "cmi.score.max": "cmi.core.score.max",
                             "cmi.score.min": "cmi.core.score.min"
                         };
-                        
-                        const mappedElement = scorm2004To12[element] || element;
-                        this.cmiData[mappedElement] = value;
+                        this.cmiData[map[element]] = value;
                         return "true";
                     },
-
-                    Commit: (param) => {
-                        console.log("Commit called");
-                        this.saveCMIData();
-                        return "true";
-                    },
-
+                    Commit: () => { console.log("Commit called"); this.saveCMIData(); return "true"; },
                     GetLastError: () => "0",
-                    GetErrorString: (errorCode) => "No Error",
-                    GetDiagnostic: (param) => ""
+                    GetErrorString: () => "No Error",
+                    GetDiagnostic: () => ""
                 };
             }
 
             async loadCourse() {
                 try {
-                    // Fetch course metadata
-                    const response = await fetch(`/api/courses/${this.courseSlug}`);
-                    const courseData = await response.json();
-                    
-                    if (!courseData) {
+                    // Fetch metadata from Supabase table or function instead of '/api/courses'
+                    const { data, error } = await supabase
+                        .from('scorm_courses')
+                        .select('package_path, launch_url')
+                        .eq('slug', this.courseSlug)
+                        .single();
+
+                    if (error || !data) {
                         throw new Error("Course not found");
                     }
 
-                    // Load the course content
-                    const contentUrl = `${courseData.package_path}/${courseData.launch_url}`;
+                    const contentUrl = data.package_path + '/' + data.launch_url;
                     const iframe = document.getElementById('content-frame');
-                    
+
                     iframe.onload = () => {
                         document.getElementById('loading').style.display = 'none';
                         iframe.style.display = 'block';
                     };
-                    
+
                     iframe.src = contentUrl;
 
-                } catch (error) {
-                    console.error("Error loading course:", error);
-                    document.getElementById('loading').textContent = "Error loading course: " + error.message;
+                } catch (err) {
+                    console.error("Error loading course:", err);
+                    document.getElementById('loading').textContent = "Error loading course: " + err.message;
                 }
             }
 
             async saveCMIData() {
                 try {
-                    const response = await fetch(`/api/sessions/${this.sessionId}`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            courseSlug: this.courseSlug,
-                            cmiData: this.cmiData,
-                            sessionId: this.sessionId
-                        })
+                    // Save CMI data to supabase table or via rpc serverless function
+                    const { error } = await supabase.from('scorm_sessions').upsert({
+                        session_id: this.sessionId,
+                        course_slug: this.courseSlug,
+                        cmi_data: this.cmiData
                     });
 
-                    if (!response.ok) {
+                    if (error) {
                         throw new Error("Failed to save CMI data");
                     }
 
                     console.log("CMI data saved successfully");
-                } catch (error) {
-                    console.error("Error saving CMI data:", error);
+                } catch (err) {
+                    console.error("Error saving CMI data:", err);
                 }
             }
         }
 
-        // Initialize player when page loads
         document.addEventListener('DOMContentLoaded', () => {
             const urlParts = window.location.pathname.split('/');
             const courseSlug = urlParts[urlParts.length - 1];
-            
             if (courseSlug) {
                 new ScormPlayer(courseSlug);
             } else {
