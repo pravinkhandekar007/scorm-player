@@ -206,15 +206,15 @@
 
         // Initialize player when page loads
         document.addEventListener('DOMContentLoaded', () => {
-            const urlParts = window.location.pathname.split('/');
-            const courseSlug = urlParts[urlParts.length - 1];
-            
-            if (courseSlug) {
-                new ScormPlayer(courseSlug);
-            } else {
-                document.getElementById('loading').textContent = "Invalid course URL";
-            }
-        });
+    const params = new URLSearchParams(window.location.search);
+    const courseSlug = params.get('course');
+    if (courseSlug) {
+        new ScormPlayer(courseSlug);
+    } else {
+        document.getElementById('loading').textContent = "Invalid course URL";
+    }
+});
+
     </script>
 </body>
 </html>
