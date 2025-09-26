@@ -109,33 +109,35 @@
             }
 
             async loadCourse() {
-                try {
-                    // Fetch metadata from Supabase table or function instead of '/api/courses'
-                    const { data, error } = await supabase
-                        .from('scorm_courses')
-                        .select('package_path, launch_url')
-                        .eq('slug', this.courseSlug)
-                        .single();
+    try {
+        const { data, error } = await supabase
+            .from('scorm_courses')
+            .select('package_path, launch_url')
+            .eq('slug', this.courseSlug)
+            .single();
 
-                    if (error || !data) {
-                        throw new Error("Course not found");
-                    }
+        if (error || !data) {
+            throw new Error("Course not found");
+        }
 
-                    const contentUrl = data.package_path + '/' + data.launch_url;
-                    const iframe = document.getElementById('content-frame');
+        // Add these logs for debugging
+        console.log('Fetched course data:', data);
+        const contentUrl = data.package_path + '/' + data.launch_url;
+        console.log('Loading iframe src URL:', contentUrl);
 
-                    iframe.onload = () => {
-                        document.getElementById('loading').style.display = 'none';
-                        iframe.style.display = 'block';
-                    };
+        const iframe = document.getElementById('content-frame');
+        iframe.onload = () => {
+            document.getElementById('loading').style.display = 'none';
+            iframe.style.display = 'block';
+        };
 
-                    iframe.src = contentUrl;
+        iframe.src = contentUrl;
 
-                } catch (err) {
-                    console.error("Error loading course:", err);
-                    document.getElementById('loading').textContent = "Error loading course: " + err.message;
-                }
-            }
+    } catch (err) {
+        console.error("Error loading course:", err);
+        document.getElementById('loading').textContent = "Error loading course: " + err.message;
+    }
+}
 
             async saveCMIData() {
                 try {
