@@ -109,39 +109,41 @@
             }
 
             async loadCourse() {
-    try {
-        const { data, error } = await supabase
-            .from('scorm_courses')
-            .select('package_path, launch_url')
-            .eq('slug', this.courseSlug)
-            .single();
+                try {
+                    const { data, error } = await supabase
+                        .from('scorm_courses')
+                        .select('package_path, launch_url')
+                        .eq('slug', this.courseSlug)
+                        .single();
 
-        if (error || !data) {
-            throw new Error("Course not found");
-        }
+                    // Log the fetched metadata
+                    console.log('Fetched course data:', data);
 
-        // Add these logs for debugging
-        console.log('Fetched course data:', data);
-        const contentUrl = data.package_path + '/' + data.launch_url;
-        console.log('Loading iframe src URL:', contentUrl);
+                    if (error || !data) {
+                        throw new Error("Course not found");
+                    }
 
-        const iframe = document.getElementById('content-frame');
-        iframe.onload = () => {
-            document.getElementById('loading').style.display = 'none';
-            iframe.style.display = 'block';
-        };
+                    const contentUrl = data.package_path + '/' + data.launch_url;
 
-        iframe.src = contentUrl;
+                    // Log the constructed iframe URL
+                    console.log('Loading iframe src URL:', contentUrl);
 
-    } catch (err) {
-        console.error("Error loading course:", err);
-        document.getElementById('loading').textContent = "Error loading course: " + err.message;
-    }
-}
+                    const iframe = document.getElementById('content-frame');
+                    iframe.onload = () => {
+                        document.getElementById('loading').style.display = 'none';
+                        iframe.style.display = 'block';
+                    };
+
+                    iframe.src = contentUrl;
+
+                } catch (err) {
+                    console.error("Error loading course:", err);
+                    document.getElementById('loading').textContent = "Error loading course: " + err.message;
+                }
+            }
 
             async saveCMIData() {
                 try {
-                    // Save CMI data to supabase table or via rpc serverless function
                     const { error } = await supabase.from('scorm_sessions').upsert({
                         session_id: this.sessionId,
                         course_slug: this.courseSlug,
@@ -160,7 +162,7 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            // New way using query parameter 'course'
+            // Get the course slug from the query parameter
             const urlParams = new URLSearchParams(window.location.search);
             const courseSlug = urlParams.get('course');
             if (courseSlug) {
