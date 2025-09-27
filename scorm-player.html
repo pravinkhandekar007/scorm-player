@@ -32,14 +32,10 @@
     class ScormPlayer {
       constructor(courseSlug) {
         this.courseSlug = courseSlug;
-        this.sessionId = this.generateSessionId();
+        this.sessionId = 'session_' + Date.now();
         this.cmiData = this.initializeCMI();
         this.setupAPI();
         this.loadCourse();
-      }
-
-      generateSessionId() {
-        return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
       }
 
       initializeCMI() {
@@ -63,21 +59,20 @@
 
       setupAPI() {
         window.API = {
-          LMSInitialize: () => { console.log("LMSInitialize called"); return "true"; },
-          LMSFinish: () => { console.log("LMSFinish called"); this.saveCMIData(); return "true"; },
-          LMSGetValue: (element) => { console.log("LMSGetValue:", element); return this.cmiData[element] || ""; },
-          LMSSetValue: (element, value) => { console.log("LMSSetValue:", element, value); this.cmiData[element] = value; return "true"; },
-          LMSCommit: () => { console.log("LMSCommit called"); this.saveCMIData(); return "true"; },
+          LMSInitialize: () => "true",
+          LMSFinish: () => { this.saveCMIData(); return "true"; },
+          LMSGetValue: (element) => this.cmiData[element] || "",
+          LMSSetValue: (element, value) => { this.cmiData[element] = value; return "true"; },
+          LMSCommit: () => { this.saveCMIData(); return "true"; },
           LMSGetLastError: () => "0",
           LMSGetErrorString: () => "No Error",
           LMSGetDiagnostic: () => ""
         };
 
         window.API_1484_11 = {
-          Initialize: () => { console.log("Initialize called"); return "true"; },
-          Terminate: () => { console.log("Terminate called"); this.saveCMIData(); return "true"; },
+          Initialize: () => "true",
+          Terminate: () => { this.saveCMIData(); return "true"; },
           GetValue: (element) => {
-            console.log("GetValue:", element);
             const map = {
               "cmi.completion_status": "cmi.core.lesson_status",
               "cmi.learner_id": "cmi.core.learner_id",
@@ -90,7 +85,6 @@
             return this.cmiData[map[element]] || "";
           },
           SetValue: (element, value) => {
-            console.log("SetValue:", element, value);
             const map = {
               "cmi.completion_status": "cmi.core.lesson_status",
               "cmi.learner_id": "cmi.core.learner_id",
@@ -103,7 +97,7 @@
             this.cmiData[map[element]] = value;
             return "true";
           },
-          Commit: () => { console.log("Commit called"); this.saveCMIData(); return "true"; },
+          Commit: () => { this.saveCMIData(); return "true"; },
           GetLastError: () => "0",
           GetErrorString: () => "No Error",
           GetDiagnostic: () => ""
@@ -121,8 +115,6 @@
           if (error || !data) throw new Error("Course not found");
 
           const contentUrl = SUPABASE_BUCKET_URL + data.package_path + "/" + data.launch_url;
-          console.log("Loading SCORM content from:", contentUrl);
-
           const iframe = document.getElementById("content-frame");
           iframe.onload = () => {
             document.getElementById("loading").style.display = "none";
@@ -130,20 +122,17 @@
           };
           iframe.src = contentUrl;
         } catch (err) {
-          console.error("Error loading course:", err);
           document.getElementById("loading").textContent = "Error loading course: " + err.message;
         }
       }
 
       async saveCMIData() {
         try {
-          const { error } = await supabase.from("scorm_sessions").upsert({
+          await supabase.from("scorm_sessions").upsert({
             session_id: this.sessionId,
             course_slug: this.courseSlug,
             cmi_data: this.cmiData
           });
-          if (error) throw new Error("Failed to save CMI data");
-          console.log("CMI data saved successfully");
         } catch (err) {
           console.error("Error saving CMI data:", err);
         }
