@@ -1,176 +1,164 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SCORM Player</title>
-    <style>
-        body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
-        #player-container { width: 100%; height: 100vh; position: relative; }
-        #content-frame { width: 100%; height: 100%; border: none; }
-        #loading { 
-            position: absolute; top: 50%; left: 50%; 
-            transform: translate(-50%, -50%); 
-            font-size: 18px; 
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SCORM Player</title>
+  <style>
+    body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+    #player-container { width: 100%; height: 100vh; position: relative; }
+    #content-frame { width: 100%; height: 100%; border: none; }
+    #loading {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 18px;
+    }
+  </style>
 </head>
 <body>
-    <div id="player-container">
-        <div id="loading">Loading SCORM content...</div>
-        <iframe id="content-frame" style="display: none;"></iframe>
-    </div>
+  <div id="player-container">
+    <div id="loading">Loading SCORM content...</div>
+    <iframe id="content-frame" style="display: none;"></iframe>
+  </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/supabase.min.js"></script>
-    <script>
-        const SUPABASE_URL = "https://kfksfnzpudycqbcftrev.supabase.co";
-        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  <!-- Load Supabase library first -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/supabase.min.js"></script>
+  <script>
+    const SUPABASE_URL = "https://kfksfnzpudycqbcftrev.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const SUPABASE_BUCKET_URL = "https://kfksfnzpudycqbcftrev.supabase.co/storage/v1/object/public/scorm-packages/";
 
-        class ScormPlayer {
-            constructor(courseSlug) {
-                this.courseSlug = courseSlug;
-                this.sessionId = this.generateSessionId();
-                this.cmiData = this.initializeCMI();
-                this.setupAPI();
-                this.loadCourse();
-            }
+    class ScormPlayer {
+      constructor(courseSlug) {
+        this.courseSlug = courseSlug;
+        this.sessionId = this.generateSessionId();
+        this.cmiData = this.initializeCMI();
+        this.setupAPI();
+        this.loadCourse();
+      }
 
-            generateSessionId() {
-                return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            }
+      generateSessionId() {
+        return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      }
 
-            initializeCMI() {
-                return {
-                    "cmi.core.lesson_status": "not attempted",
-                    "cmi.core.entry": "ab-initio",
-                    "cmi.core.learner_id": "anonymous_" + Date.now(),
-                    "cmi.core.learner_name": "Anonymous User",
-                    "cmi.core.score.raw": "",
-                    "cmi.core.score.max": "100",
-                    "cmi.core.score.min": "0",
-                    "cmi.core.session_time": "00:00:00",
-                    "cmi.core.total_time": "00:00:00",
-                    "cmi.suspend_data": "",
-                    "cmi.launch_data": "",
-                    "cmi.comments": "",
-                    "cmi.comments_from_lms": "",
-                    "cmi.core.lesson_location": ""
-                };
-            }
+      initializeCMI() {
+        return {
+          "cmi.core.lesson_status": "not attempted",
+          "cmi.core.entry": "ab-initio",
+          "cmi.core.learner_id": "anonymous_" + Date.now(),
+          "cmi.core.learner_name": "Anonymous User",
+          "cmi.core.score.raw": "",
+          "cmi.core.score.max": "100",
+          "cmi.core.score.min": "0",
+          "cmi.core.session_time": "00:00:00",
+          "cmi.core.total_time": "00:00:00",
+          "cmi.suspend_data": "",
+          "cmi.launch_data": "",
+          "cmi.comments": "",
+          "cmi.comments_from_lms": "",
+          "cmi.core.lesson_location": ""
+        };
+      }
 
-            setupAPI() {
-                window.API = {
-                    LMSInitialize: () => { console.log("LMSInitialize called"); return "true"; },
-                    LMSFinish: () => { console.log("LMSFinish called"); this.saveCMIData(); return "true"; },
-                    LMSGetValue: (element) => { console.log("LMSGetValue:", element); return this.cmiData[element] || ""; },
-                    LMSSetValue: (element, value) => { console.log("LMSSetValue:", element, value); this.cmiData[element] = value; return "true"; },
-                    LMSCommit: () => { console.log("LMSCommit called"); this.saveCMIData(); return "true"; },
-                    LMSGetLastError: () => "0",
-                    LMSGetErrorString: () => "No Error",
-                    LMSGetDiagnostic: () => ""
-                };
+      setupAPI() {
+        window.API = {
+          LMSInitialize: () => { console.log("LMSInitialize called"); return "true"; },
+          LMSFinish: () => { console.log("LMSFinish called"); this.saveCMIData(); return "true"; },
+          LMSGetValue: (element) => { console.log("LMSGetValue:", element); return this.cmiData[element] || ""; },
+          LMSSetValue: (element, value) => { console.log("LMSSetValue:", element, value); this.cmiData[element] = value; return "true"; },
+          LMSCommit: () => { console.log("LMSCommit called"); this.saveCMIData(); return "true"; },
+          LMSGetLastError: () => "0",
+          LMSGetErrorString: () => "No Error",
+          LMSGetDiagnostic: () => ""
+        };
 
-                window.API_1484_11 = {
-                    Initialize: () => { console.log("Initialize called"); return "true"; },
-                    Terminate: () => { console.log("Terminate called"); this.saveCMIData(); return "true"; },
-                    GetValue: (element) => {
-                        console.log("GetValue:", element);
-                        const map = {
-                            "cmi.completion_status": "cmi.core.lesson_status",
-                            "cmi.learner_id": "cmi.core.learner_id",
-                            "cmi.learner_name": "cmi.core.learner_name",
-                            "cmi.location": "cmi.core.lesson_location",
-                            "cmi.score.raw": "cmi.core.score.raw",
-                            "cmi.score.max": "cmi.core.score.max",
-                            "cmi.score.min": "cmi.core.score.min"
-                        };
-                        return this.cmiData[map[element]] || "";
-                    },
-                    SetValue: (element, value) => {
-                        console.log("SetValue:", element, value);
-                        const map = {
-                            "cmi.completion_status": "cmi.core.lesson_status",
-                            "cmi.learner_id": "cmi.core.learner_id",
-                            "cmi.learner_name": "cmi.core.learner_name",
-                            "cmi.location": "cmi.core.lesson_location",
-                            "cmi.score.raw": "cmi.core.score.raw",
-                            "cmi.score.max": "cmi.core.score.max",
-                            "cmi.score.min": "cmi.core.score.min"
-                        };
-                        this.cmiData[map[element]] = value;
-                        return "true";
-                    },
-                    Commit: () => { console.log("Commit called"); this.saveCMIData(); return "true"; },
-                    GetLastError: () => "0",
-                    GetErrorString: () => "No Error",
-                    GetDiagnostic: () => ""
-                };
-            }
+        window.API_1484_11 = {
+          Initialize: () => { console.log("Initialize called"); return "true"; },
+          Terminate: () => { console.log("Terminate called"); this.saveCMIData(); return "true"; },
+          GetValue: (element) => {
+            console.log("GetValue:", element);
+            const map = {
+              "cmi.completion_status": "cmi.core.lesson_status",
+              "cmi.learner_id": "cmi.core.learner_id",
+              "cmi.learner_name": "cmi.core.learner_name",
+              "cmi.location": "cmi.core.lesson_location",
+              "cmi.score.raw": "cmi.core.score.raw",
+              "cmi.score.max": "cmi.core.score.max",
+              "cmi.score.min": "cmi.core.score.min"
+            };
+            return this.cmiData[map[element]] || "";
+          },
+          SetValue: (element, value) => {
+            console.log("SetValue:", element, value);
+            const map = {
+              "cmi.completion_status": "cmi.core.lesson_status",
+              "cmi.learner_id": "cmi.core.learner_id",
+              "cmi.learner_name": "cmi.core.learner_name",
+              "cmi.location": "cmi.core.lesson_location",
+              "cmi.score.raw": "cmi.core.score.raw",
+              "cmi.score.max": "cmi.core.score.max",
+              "cmi.score.min": "cmi.core.score.min"
+            };
+            this.cmiData[map[element]] = value;
+            return "true";
+          },
+          Commit: () => { console.log("Commit called"); this.saveCMIData(); return "true"; },
+          GetLastError: () => "0",
+          GetErrorString: () => "No Error",
+          GetDiagnostic: () => ""
+        };
+      }
 
-            async loadCourse() {
-                try {
-                    const { data, error } = await supabase
-                        .from('scorm_courses')
-                        .select('package_path, launch_url')
-                        .eq('slug', this.courseSlug)
-                        .single();
+      async loadCourse() {
+        try {
+          const { data, error } = await supabase
+            .from("courses")
+            .select("package_path, launch_url")
+            .eq("course_slug", this.courseSlug)
+            .single();
 
-                    // Log the fetched metadata
-                    console.log('Fetched course data:', data);
+          if (error || !data) throw new Error("Course not found");
 
-                    if (error || !data) {
-                        throw new Error("Course not found");
-                    }
+          const contentUrl = SUPABASE_BUCKET_URL + data.package_path + "/" + data.launch_url;
+          console.log("Loading SCORM content from:", contentUrl);
 
-                    const contentUrl = data.package_path + '/' + data.launch_url;
-
-                    // Log the constructed iframe URL
-                    console.log('Loading iframe src URL:', contentUrl);
-
-                    const iframe = document.getElementById('content-frame');
-                    iframe.onload = () => {
-                        document.getElementById('loading').style.display = 'none';
-                        iframe.style.display = 'block';
-                    };
-
-                    iframe.src = contentUrl;
-
-                } catch (err) {
-                    console.error("Error loading course:", err);
-                    document.getElementById('loading').textContent = "Error loading course: " + err.message;
-                }
-            }
-
-            async saveCMIData() {
-                try {
-                    const { error } = await supabase.from('scorm_sessions').upsert({
-                        session_id: this.sessionId,
-                        course_slug: this.courseSlug,
-                        cmi_data: this.cmiData
-                    });
-
-                    if (error) {
-                        throw new Error("Failed to save CMI data");
-                    }
-
-                    console.log("CMI data saved successfully");
-                } catch (err) {
-                    console.error("Error saving CMI data:", err);
-                }
-            }
+          const iframe = document.getElementById("content-frame");
+          iframe.onload = () => {
+            document.getElementById("loading").style.display = "none";
+            iframe.style.display = "block";
+          };
+          iframe.src = contentUrl;
+        } catch (err) {
+          console.error("Error loading course:", err);
+          document.getElementById("loading").textContent = "Error loading course: " + err.message;
         }
+      }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            // Get the course slug from the query parameter
-            const urlParams = new URLSearchParams(window.location.search);
-            const courseSlug = urlParams.get('course');
-            if (courseSlug) {
-                new ScormPlayer(courseSlug);
-            } else {
-                document.getElementById('loading').textContent = "Invalid course URL";
-            }
-        });
-    </script>
+      async saveCMIData() {
+        try {
+          const { error } = await supabase.from("scorm_sessions").upsert({
+            session_id: this.sessionId,
+            course_slug: this.courseSlug,
+            cmi_data: this.cmiData
+          });
+          if (error) throw new Error("Failed to save CMI data");
+          console.log("CMI data saved successfully");
+        } catch (err) {
+          console.error("Error saving CMI data:", err);
+        }
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const courseSlug = urlParams.get("course");
+      if (courseSlug) {
+        new ScormPlayer(courseSlug);
+      } else {
+        document.getElementById("loading").textContent = "Invalid course URL";
+      }
+    });
+  </script>
 </body>
 </html>
