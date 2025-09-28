@@ -21,9 +21,9 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
+      color: #fff;
       font-family: Arial, sans-serif;
       font-size: 18px;
-      color: #fff;
     }
     #content-frame {
       display: none;
@@ -40,72 +40,71 @@
   </div>
 
   <script type="module">
-    // 1. Import Supabase factory
+    // 1. Import Supabase client factory
     import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-    // 2. Initialize Supabase client
+    // 2. Initialize Supabase for metadata lookup
     const SUPABASE_URL      = "https://kfksfnzpudycqbcftrev.supabase.co";
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
+    const SUPABASE_ANON_KEY = "YOUR_ANON_KEY_HERE";
     const supabase          = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // 3. Public bucket base URL
-    const BUCKET_URL = 
-      "https://kfksfnzpudycqbcftrev.supabase.co/storage/v1/object/public/scorm-packages";
+    // 3. Point at your proxy edge function
+    const PROXY_BASE = 
+      "https://kfksfnzpudycqbcftrev.supabase.co/functions/v1/proxy-scorm";
 
-    // 4. Fetch and parse imsmanifest.xml if needed
+    // 4. If the launch_url is XML, fetch & parse manifest via the proxy
     async function getLaunchFile(packagePath, launchUrl) {
-      // If the stored launch_url isn't XML, return it directly
       if (!launchUrl.toLowerCase().endsWith(".xml")) {
         return launchUrl;
       }
 
-      const manifestUrl = `${BUCKET_URL}/${packagePath}/${launchUrl}`;
-      const resp = await fetch(manifestUrl);
-      if (!resp.ok) {
-        throw new Error(`Failed to fetch manifest: ${resp.status}`);
+      const manifestRes = await fetch(
+        `${PROXY_BASE}/scorm-packages/${packagePath}/${launchUrl}`
+      );
+      if (!manifestRes.ok) {
+        throw new Error(`Failed to load manifest: ${manifestRes.status}`);
       }
 
-      const xmlText = await resp.text();
+      const xmlText = await manifestRes.text();
       const parser  = new DOMParser();
       const xmlDoc  = parser.parseFromString(xmlText, "text/xml");
 
       const item = xmlDoc.querySelector("organization > item");
       if (!item) {
-        throw new Error("No <organization><item> in imsmanifest.xml");
+        throw new Error("Manifest missing <organization><item>");
       }
 
       const identifierRef = item.getAttribute("identifierref");
       if (!identifierRef) {
-        throw new Error("Missing identifierref on <item>");
+        throw new Error("Missing identifierref");
       }
 
       const resource = xmlDoc.querySelector(
         `resource[identifier="${identifierRef}"]`
       );
       if (!resource) {
-        throw new Error(`No <resource> with identifier="${identifierRef}"`);
+        throw new Error("No matching <resource> in manifest");
       }
 
       const href = resource.getAttribute("href");
       if (!href) {
-        throw new Error("Resource missing href attribute");
+        throw new Error("<resource> missing href attribute");
       }
 
       return href;
     }
 
-    // 5. Main loader
-    async function loadCourse() {
-      const params = new URLSearchParams(window.location.search);
+    // 5. Main loader: fetch metadata, resolve launch file, set iframe.src
+    document.addEventListener("DOMContentLoaded", async () => {
+      const params     = new URLSearchParams(window.location.search);
       const courseSlug = params.get("course");
       if (!courseSlug) {
         document.getElementById("loading").textContent =
-          "Error: missing ?course= parameter";
+          "Error: Missing ?course= parameter";
         return;
       }
 
       try {
-        // a. Retrieve package_path & launch_url from Supabase
         const { data, error } = await supabase
           .from("courses")
           .select("package_path, launch_url")
@@ -116,26 +115,23 @@
           throw new Error(error?.message || "Course not found");
         }
 
-        // b. Determine the real HTML entrypoint
-        const launchFile = await getLaunchFile(
+        const entrypoint = await getLaunchFile(
           data.package_path,
           data.launch_url
         );
 
-        // c. Point iframe at the resolved URL
         const iframe = document.getElementById("content-frame");
         iframe.onload = () => {
           document.getElementById("loading").style.display = "none";
           iframe.style.display = "block";
         };
-        iframe.src = `${BUCKET_URL}/${data.package_path}/${launchFile}`;
+        iframe.src =
+          `${PROXY_BASE}/scorm-packages/${data.package_path}/${entrypoint}`;
       } catch (err) {
         document.getElementById("loading").textContent =
           "Error loading content: " + err.message;
       }
-    }
-
-    document.addEventListener("DOMContentLoaded", loadCourse);
+    });
   </script>
 </body>
 </html>
