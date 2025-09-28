@@ -40,24 +40,19 @@
   </div>
 
   <script type="module">
-    // 1) Supabase client for metadata lookup
     import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
     const SUPABASE_URL      = "https://kfksfnzpudycqbcftrev.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
     const supabase          = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // 2) Your proxy endpoint base
     const PROXY_BASE =
       "https://kfksfnzpudycqbcftrev.supabase.co/functions/v1/proxy-scorm";
 
-    // 3) Fetch & parse imsmanifest.xml via proxy, sending anon key
     async function getLaunchFile(packagePath, launchUrl) {
-      // If the launchUrl is not an XML manifest, return it directly
       if (!launchUrl.toLowerCase().endsWith(".xml")) {
         return launchUrl;
       }
 
-      // Build the manifest URL with ?apikey= (not as a slash)
       const url =
         `${PROXY_BASE}/scorm-packages/${packagePath}/${launchUrl}` +
         `?apikey=${SUPABASE_ANON_KEY}`;
@@ -77,9 +72,10 @@
       const parser  = new DOMParser();
       const xmlDoc  = parser.parseFromString(xmlText, "application/xml");
 
-      const item = xmlDoc.querySelector("organization > item");
+      // Fixed selector: organizations > organization > item
+      const item = xmlDoc.querySelector("organizations > organization > item");
       if (!item) {
-        throw new Error("Manifest missing <organization><item>");
+        throw new Error("Manifest missing <organizations><organization><item>");
       }
 
       const identifierRef = item.getAttribute("identifierref");
@@ -88,7 +84,7 @@
       }
 
       const resource = xmlDoc.querySelector(
-        `resource[identifier="${identifierRef}"]`
+        `resources > resource[identifier="${identifierRef}"]`
       );
       if (!resource) {
         throw new Error("No matching <resource> in manifest");
@@ -102,7 +98,6 @@
       return href;
     }
 
-    // 4) Main loader: lookup course record, resolve entrypoint, set iframe.src
     document.addEventListener("DOMContentLoaded", async () => {
       const params     = new URLSearchParams(window.location.search);
       const courseSlug = params.get("course");
@@ -113,7 +108,6 @@
       }
 
       try {
-        // Fetch your course metadata (package_path + launch_url)
         const { data, error } = await supabase
           .from("courses")
           .select("package_path, launch_url")
@@ -124,20 +118,22 @@
           throw new Error(error?.message || "Course not found");
         }
 
-        // If it's imsmanifest.xml, fetch & parse it to get the real entrypoint
         const entrypoint = await getLaunchFile(
           data.package_path,
           data.launch_url
         );
 
-        // Once we know the real entry HTML/JS, load it in the iframe
         const iframe = document.getElementById("content-frame");
+
         iframe.onload = () => {
           document.getElementById("loading").style.display = "none";
           iframe.style.display = "block";
         };
 
-        // Append ?apikey= to satisfy the Functions gateway on iframe navigation
+        iframe.onerror = () => {
+          document.getElementById("loading").textContent = "Failed to load SCORM content.";
+        };
+
         iframe.src =
           `${PROXY_BASE}/scorm-packages/${data.package_path}/${entrypoint}` +
           `?apikey=${SUPABASE_ANON_KEY}`;
@@ -145,6 +141,7 @@
       } catch (err) {
         document.getElementById("loading").textContent =
           "Error loading content: " + err.message;
+        console.error(err);
       }
     });
   </script>
