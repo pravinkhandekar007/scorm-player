@@ -8,7 +8,7 @@
         body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; }
         .auth-box { padding: 20px; border: 1px solid #ccc; max-width: 400px; margin: 20px auto; text-align: center; }
         .btn { padding: 10px 20px; margin: 5px; cursor: pointer; }
-        #playerContainer { height: calc(100vh - 50px); width: 100%; } /* Adjusted height for full view */
+        #playerContainer { height: calc(100vh - 50px); width: 100%; }
         #courseLoadMessage { text-align: center; padding: 20px; font-size: 1.2em; }
     </style>
 </head>
@@ -34,6 +34,7 @@
 <script type="module">
     import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+    // IMPORTANT: Replace with your actual Supabase details
     const SUPABASE_URL = "https://kfksfnzpudycqbcftrev.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -51,7 +52,7 @@
     const courseLoadMessage = document.getElementById("courseLoadMessage");
 
     // =======================================================
-    // SCORM 1.2 API Wrapper (LMS Adapter)
+    // SCORM 1.2 API Wrapper (LMS Adapter) - FIX for "API is not defined"
     // =======================================================
     function createLMSAPI(courseSlug, session) {
         let initialized = false;
@@ -100,6 +101,7 @@
                     
                     if (response.ok) {
                         const loadedData = await response.json();
+                        // Assuming the server returns { cmi_data: {...} } or {}
                         if (loadedData && loadedData.cmi_data) {
                             cmi = loadedData.cmi_data; 
                         }
@@ -148,6 +150,7 @@
     }
     // =======================================================
 
+
     async function loadCourse(session) {
         const urlParams = new URLSearchParams(window.location.search);
         const courseSlug = urlParams.get('course');
@@ -165,13 +168,13 @@
             const response = await fetch(metadataUrl, {
                 method: 'GET',
                 headers: {
-                    'Authorization': `Bearer ${session.access_token}`, // 🔑 FIX: Use user's JWT
+                    'Authorization': `Bearer ${session.access_token}`, // CRITICAL FIX: Use user's JWT
                     'apikey': SUPABASE_ANON_KEY,
                 },
             });
             
             if (!response.ok) {
-                // This catches the 401 error and displays it clearly
+                // Catches the 401 error and displays it clearly
                 throw new Error(`Failed to load course metadata: ${response.status}`);
             }
 
@@ -243,6 +246,7 @@
         await checkAuth(); 
     });
 
+    // Initial check
     checkAuth();
 </script>
 </body>
