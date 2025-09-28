@@ -58,6 +58,7 @@
             infoDiv.textContent = `Logged in as: ${user.email}. Ready to upload.`;
             uploadButton.disabled = false;
         } else {
+            // 🎯 FIXED PATH: Using simple relative path 'login.html'
             infoDiv.innerHTML = 'You are not logged in. <a href="login.html">Please log in.</a>';
             uploadButton.disabled = true;
         }
@@ -82,7 +83,7 @@
 
         // 🎯 FIX: Declare and initialize courseSlug BEFORE it is used in uploadPath
         const courseUniqueId = Date.now() + '-' + crypto.randomUUID();
-        const courseSlug = 'course-' + courseUniqueId; // e.g., course-1759082000000-new-uuid
+        const courseSlug = 'course-' + courseUniqueId; 
 
         statusDiv.textContent = 'Authenticating...';
         
@@ -106,11 +107,11 @@
             const response = await fetch(uploadPath, {
                 method: 'POST',
                 headers: {
-                    // Send JWT and API key for authorization in Edge Function 1
+                    // Send JWT and API key for authorization
                     'Authorization': `Bearer ${session.access_token}`, 
                     'apikey': SUPABASE_ANON_KEY,
                 },
-                body: formData,
+                body: formData, // FormData must be passed as the body without setting Content-Type
             });
 
             const responseText = await response.text();
@@ -131,6 +132,7 @@
             const result = JSON.parse(responseText);
             statusDiv.textContent = `Upload successful! Course Title: ${result.title}`;
             
+            // Player link uses relative path
             const playerUrl = `scorm-player.html?course=${courseSlug}`;
             resultLinkDiv.innerHTML = `<p>Launch your course:</p><a href="${playerUrl}" target="_blank">${playerUrl}</a>`;
 
