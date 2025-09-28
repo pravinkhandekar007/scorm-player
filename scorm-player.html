@@ -23,12 +23,11 @@
     // =========================================================
     // 1. CONFIGURATION (MUST BE ACCESSIBLE)
     // IMPORTANT: Replace these placeholders with your actual Supabase details
-    // Ensure these variables are correctly available in your environment (e.g., loaded from a config file or defined here)
     const SUPABASE_URL = 'https://kfksfnzpudycqbcftrev.supabase.co'; // Your actual Supabase URL
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs'; // Your actual Supabase public anon key
+    const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY_HERE'; // Your actual Supabase public anon key
 
-    // Initialize Supabase Client
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // Initialize Supabase Client (FIXED: Use window.supabase.createClient to resolve ReferenceError)
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     
     const messageDiv = document.getElementById('message');
     const iframe = document.getElementById('course-iframe');
@@ -89,14 +88,13 @@
             }
 
             // Look for the main resource in the manifest (SCORM 1.2 typically)
-            // Finds the <resource> element with an 'href' attribute
             const resource = xmlDoc.querySelector('resource[href]');
 
             if (resource) {
                 return resource.getAttribute('href');
             }
 
-            // Fallback for more complex manifests (SCORM 2004) - look for the first <item> in <organizations>
+            // Fallback for more complex manifests (SCORM 2004)
             const defaultActivity = xmlDoc.querySelector('organization[default="true"] > item[identifierref][identifier]');
             if (defaultActivity) {
                 const identifierRef = defaultActivity.getAttribute('identifierref');
@@ -107,7 +105,7 @@
             }
 
             console.warn("Could not find launch URL in manifest. Defaulting to index.html.");
-            return 'index.html'; // Default SCORM launch file name
+            return 'index.html'; 
             
         } catch (e) {
             console.error("Error processing manifest:", e);
@@ -141,11 +139,13 @@
             }
 
             // 3. Prepare the final launch URL to the proxy function
+            // Note: SCORM needs the path to be relative to the launch file, but since 
+            // the iframe will be running on the proxy-scorm URL, we set the iframe source to the launch path.
             const finalLaunchPath = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${launchUrl}`;
             
             // 4. Set the iframe source
             iframe.src = finalLaunchPath;
-            messageDiv.textContent = `Course loaded: ${launchUrl}`;
+            messageDiv.textContent = `Course content launched.`;
             messageDiv.style.color = 'green';
             
         } catch (error) {
@@ -157,7 +157,6 @@
     // =========================================================
     // 4. SCORM API IMPLEMENTATION (Minimal Stub for Communication)
     // The SCORM content expects to find an API object in the window scope.
-    // This is a minimal stub to prevent SCORM packages from crashing instantly.
 
     window.API = {
         LMSInitialize: function(param) { 
@@ -170,16 +169,17 @@
         },
         LMSGetValue: function(element) { 
             console.log("SCORM: LMSGetValue called for " + element);
-            return ""; // Return empty string for now
+            // In a real implementation, this would call Edge Function 2 to retrieve data
+            return ""; 
         },
         LMSSetValue: function(element, value) { 
             console.log(`SCORM: LMSSetValue called for ${element} with value ${value}`);
-            // This is where you would call a backend function (Edge Function 2) to save data
+            // In a real implementation, this would call Edge Function 2 to save data
             return "true"; 
         },
         LMSCommit: function(param) { 
             console.log("SCORM: LMSCommit called.");
-            // This is where you would call Edge Function 2 to save all pending data
+            // In a real implementation, this would call Edge Function 2 to save pending data
             return "true"; 
         },
         LMSGetLastError: function() { 
@@ -188,18 +188,18 @@
         LMSGetErrorString: function(errorCode) { 
             return "No Error"; 
         },
-        LLMSGetDiagnostic: function(errorCode) { 
+        LMSGetDiagnostic: function(errorCode) { 
             return ""; 
         }
     };
 
-    // The course content often searches for the API object in parent/opener windows
+    // Helper function used by SCORM content to find the API
     window.findAPI = function(win) {
         if (win.API) {
             return win.API;
-        } else if (win.parent && win.parent != win) {
+        } else if (win.parent && win.parent !== win) {
             return findAPI(win.parent);
-        } else if (win.opener && win.opener != win) {
+        } else if (win.opener && win.opener !== win) {
             return findAPI(win.opener);
         }
         return null;
