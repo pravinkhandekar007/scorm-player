@@ -80,60 +80,51 @@
 
         async function loadCourse() {
             try {
-                // Get course slug from URL
-                const urlParams = new URLSearchParams(window.location.search);
-                const courseSlug = urlParams.get('course');
-                
-                if (!courseSlug) {
-                    throw new Error('No course specified in URL');
-                }
+                const params = new URLSearchParams(window.location.search);
+                const courseSlug = params.get('course');
+                if (!courseSlug) throw new Error('No course specified in URL');
 
-                // Fetch course metadata
-                const response = await fetch(`${SUPABASE_URL}/functions/v1/get-course/${courseSlug}`, {
-                    headers: {
-                        'apikey': SUPABASE_ANON_KEY,
-                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                const metaRes = await fetch(
+                    `${SUPABASE_URL}/functions/v1/get-course/${courseSlug}`, {
+                        headers: {
+                            'apikey': SUPABASE_ANON_KEY,
+                            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                        }
                     }
-                });
+                );
+                if (!metaRes.ok) throw new Error(`Failed to load course metadata: ${metaRes.status}`);
+                const course = await metaRes.json();
 
-                if (!response.ok) {
-                    throw new Error(`Failed to load course: ${response.status}`);
-                }
-
-                const course = await response.json();
-                console.log('Course data:', course);
-
-                // Update UI with course info
                 document.getElementById('courseTitle').textContent = course.title;
                 document.getElementById('courseTitleInfo').textContent = course.title;
                 document.getElementById('courseInfo').style.display = 'block';
 
-                // Load the course content
                 const launchUrl = await getLaunchFile(course);
-                
-                // Hide loading, show iframe
                 document.getElementById('loading').style.display = 'none';
                 const iframe = document.getElementById('courseFrame');
                 iframe.src = launchUrl;
                 iframe.style.display = 'block';
 
-            } catch (error) {
-                console.error('Error:', error);
-                showError(`Error loading content: ${error.message}`);
+            } catch (err) {
+                console.error(err);
+                showError(`Error loading content: ${err.message}`);
             }
         }
 
         async function getLaunchFile(course) {
-            const manifestUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${course.package_path}/${course.launch_url}?apikey=${SUPABASE_ANON_KEY}`;
-            
+            const manifestUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${course.package_path}/${course.launch_url}`;
             console.log('Attempting to load manifest from:', manifestUrl);
-            
-            // Test if manifest exists
-            const response = await fetch(manifestUrl);
-            if (!response.ok) {
-                throw new Error(`Failed to load manifest: ${response.status}`);
-            }
 
+            const res = await fetch(manifestUrl, {
+                method: 'GET',
+                headers: {
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                }
+            });
+            if (!res.ok) {
+                throw new Error(`Failed to load manifest: ${res.status}`);
+            }
             return manifestUrl;
         }
 
@@ -143,7 +134,6 @@
             document.getElementById('error').style.display = 'block';
         }
 
-        // Load course when page loads
         document.addEventListener('DOMContentLoaded', loadCourse);
     </script>
 </body>
