@@ -1,3 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SCORM Player</title>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; }
+        .auth-box { padding: 20px; border: 1px solid #ccc; max-width: 400px; margin: 20px auto; text-align: center; }
+        .btn { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        #playerContainer { height: calc(100vh - 50px); width: 100%; } /* Adjusted height for full view */
+        #courseLoadMessage { text-align: center; padding: 20px; font-size: 1.2em; }
+    </style>
+</head>
+<body>
+
+<h1>🎓 SCORM Course Player</h1>
+
+<div id="authSection" class="auth-box">
+    <h2>Signup or Login to Access</h2>
+    <input type="email" id="email" placeholder="Email" /><br/><br/>
+    <input type="password" id="password" placeholder="Password" /><br/><br/>
+    <button id="signupBtn" class="btn">Sign Up</button>
+    <button id="loginBtn" class="btn">Login</button>
+    <button id="logoutBtn" class="btn" style="display:none;">Logout</button>
+    <p id="authMessage"></p>
+</div>
+
+<div id="courseLoadMessage">Initializing player...</div>
+<div id="playerContainer" style="display:none; height: 80vh; width: 100%;">
+    <iframe id="scormIframe" style="width: 100%; height: 100%; border: none;"></iframe>
+</div>
+
 <script type="module">
     import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -5,20 +38,115 @@
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+    // HTML elements
     const authSection = document.getElementById("authSection");
-    // ... (Keep other auth-related element definitions if you want to keep the login UI)
-
-    // --- New Player Elements (Ensure these exist in the HTML body) ---
-    // You should add these elements to the HTML body above the script:
-    // <div id="playerContainer" style="display:none; height: 100vh;">
-    //     <iframe id="scormIframe" style="width: 100%; height: 100%; border: none;"></iframe>
-    // </div>
-    // <div id="courseLoadMessage">Initializing player...</div>
+    const emailInput = document.getElementById("email");
+    const passwordInput = document.getElementById("password");
+    const signupBtn = document.getElementById("signupBtn");
+    const loginBtn = document.getElementById("loginBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const authMessage = document.getElementById("authMessage");
     const playerContainer = document.getElementById("playerContainer");
     const scormIframe = document.getElementById("scormIframe");
     const courseLoadMessage = document.getElementById("courseLoadMessage");
-    // -----------------------------------------------------------------
 
+    // =======================================================
+    // SCORM 1.2 API Wrapper (LMS Adapter)
+    // =======================================================
+    function createLMSAPI(courseSlug, session) {
+        let initialized = false;
+        let terminated = false;
+        let cmi = {}; 
+        let lastError = 0;
+
+        const commitData = async () => {
+            if (terminated) return "false";
+            
+            try {
+                const response = await fetch(`${SUPABASE_URL}/functions/v1/scorm-data`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${session.access_token}`,
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'commit',
+                        course_slug: courseSlug,
+                        user_id: session.user.id,
+                        cmi_data: cmi,
+                    }),
+                });
+                if (!response.ok) throw new Error("Commit failed");
+                return "true";
+            } catch (e) {
+                console.error("LMSCommit failed to save:", e);
+                lastError = 101; 
+                return "false";
+            }
+        };
+        
+        window.API = {
+            LMSInitialize: async (param) => {
+                if (initialized) return "false";
+                initialized = true;
+                
+                try {
+                    // Fetch existing state
+                    const response = await fetch(`${SUPABASE_URL}/functions/v1/scorm-data?course_slug=${courseSlug}&user_id=${session.user.id}`, {
+                        method: 'GET',
+                        headers: { 'Authorization': `Bearer ${session.access_token}`, 'apikey': SUPABASE_ANON_KEY },
+                    });
+                    
+                    if (response.ok) {
+                        const loadedData = await response.json();
+                        if (loadedData && loadedData.cmi_data) {
+                            cmi = loadedData.cmi_data; 
+                        }
+                    }
+                    
+                    // Initialize or override required CMI fields
+                    cmi['cmi.core.student_id'] = session.user.id;
+                    cmi['cmi.core.student_name'] = session.user.email;
+                    cmi['cmi.core.lesson_mode'] = 'normal';
+                    cmi['cmi.core.lesson_status'] = cmi['cmi.core.lesson_status'] || 'not attempted';
+                    cmi['cmi.core.entry'] = cmi['cmi.core.lesson_status'] === 'not attempted' ? 'ab-initio' : 'resume';
+
+                    console.log("LMSInitialize successful, CMI data:", cmi);
+                    return "true";
+                } catch (e) {
+                    console.error("LMSInitialize failed to load state:", e);
+                    lastError = 101;
+                    return "false";
+                }
+            },
+            LMSFinish: (param) => {
+                if (!initialized || terminated) return "false";
+                terminated = true;
+                commitData(); 
+                console.log("LMSFinish successful.");
+                return "true";
+            },
+            LMSGetValue: (element) => {
+                lastError = 0;
+                const value = cmi[element];
+                return value === undefined ? "" : value;
+            },
+            LMSSetValue: (element, value) => {
+                lastError = 0;
+                cmi[element] = value;
+                return "true";
+            },
+            LMSCommit: (param) => {
+                console.log("LMSCommit triggered.");
+                return commitData();
+            },
+            LMSGetLastError: () => String(lastError),
+            LMSGetErrorString: (code) => "Unknown error",
+            LMSGetDiagnostic: (code) => "No diagnostic available",
+        };
+    }
+    // =======================================================
 
     async function loadCourse(session) {
         const urlParams = new URLSearchParams(window.location.search);
@@ -32,35 +160,34 @@
         courseLoadMessage.textContent = `Loading course: ${courseSlug}...`;
         
         try {
-            // 1. Fetch Course Metadata (Edge Function 2)
-            const edgeFunctionUrl = `${SUPABASE_URL}/functions/v1/get-course/${courseSlug}`;
-
-            const response = await fetch(edgeFunctionUrl, {
+            // 1. Fetch Course Metadata (Edge Function 2) - FIX: Authorization Header
+            const metadataUrl = `${SUPABASE_URL}/functions/v1/get-course/${courseSlug}`;
+            const response = await fetch(metadataUrl, {
                 method: 'GET',
                 headers: {
-                    'Authorization': `Bearer ${session.access_token}`, // ✅ CRITICAL FIX: Use user's JWT
+                    'Authorization': `Bearer ${session.access_token}`, // 🔑 FIX: Use user's JWT
                     'apikey': SUPABASE_ANON_KEY,
                 },
             });
             
             if (!response.ok) {
-                // Throw an error with the status code for better debugging
+                // This catches the 401 error and displays it clearly
                 throw new Error(`Failed to load course metadata: ${response.status}`);
             }
 
             const course = await response.json();
             
-            // 2. Construct SCORM Content Launch URL (via Edge Function 3 Proxy)
+            // 2. Instantiate SCORM API (must happen before iframe loads)
+            createLMSAPI(courseSlug, session); 
+
+            // 3. Construct SCORM Content Launch URL (via Edge Function 3 Proxy)
             const launchPath = `${course.package_path}/${course.launch_url}`;
-            // The third Edge Function is named `proxy-scorm`, use that path
             const scormContentUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${launchPath}`; 
 
-            // 3. Display the SCORM Content
+            // 4. Display the SCORM Content
             scormIframe.src = scormContentUrl;
-            
             playerContainer.style.display = "block";
             courseLoadMessage.style.display = "none";
-            // Hide auth section once player loads
             if (authSection) authSection.style.display = "none"; 
 
         } catch (error) {
@@ -72,33 +199,51 @@
 
     async function checkAuth() {
         const { data: { session } } = await supabase.auth.getSession();
+        const courseSlug = new URLSearchParams(window.location.search).get('course');
         
+        if (!courseSlug) {
+            courseLoadMessage.textContent = "Welcome! Use the share link from the upload page to view a course.";
+            if (authSection) authSection.style.display = "block";
+            return;
+        }
+
         if (session) {
-            // ... (keep logic for updating authMessage/buttons for logged in state)
-            
             if (!session.user.email_confirmed_at) {
-                // Handle unverified email
-                // ...
+                authMessage.textContent = "Please verify your email.";
+                if (authSection) authSection.style.display = "block";
             } else {
-                // User is authenticated, proceed to load course
+                authMessage.textContent = `Logged in as ${session.user.email}`;
+                if (authSection) authSection.style.display = "none";
                 await loadCourse(session);
             }
+            // Update auth buttons state
+            signupBtn.style.display = "none";
+            loginBtn.style.display = "none";
+            logoutBtn.style.display = "inline-block";
         } else {
-            // ... (keep logic for updating authMessage/buttons for logged out state)
-            
-            // Display a message prompting login if course param exists
-            const courseSlug = new URLSearchParams(window.location.search).get('course');
-            if (courseSlug) {
-                 courseLoadMessage.textContent = "Please log in to view this course.";
-                 // Show only the auth section
-                 if (authSection) authSection.style.display = "block";
-            }
+            authMessage.textContent = "Please log in to view this course.";
+            courseLoadMessage.style.display = "none";
+            if (authSection) authSection.style.display = "block";
+            // Update auth buttons state
+            signupBtn.style.display = "inline-block";
+            loginBtn.style.display = "inline-block";
+            logoutBtn.style.display = "none";
         }
     }
 
-    // (Keep signupBtn, loginBtn, logoutBtn event listeners, and helper functions)
-    // ...
-    
-    // Initial check
+    // Auth Event Listeners (Keep as-is)
+    signupBtn.addEventListener("click", async () => { /* ... signup logic ... */ });
+    loginBtn.addEventListener("click", async () => { 
+        const { error } = await supabase.auth.signInWithPassword({ email: emailInput.value, password: passwordInput.value });
+        if (!error) await checkAuth(); 
+        else authMessage.textContent = `Login error: ${error.message}`;
+    });
+    logoutBtn.addEventListener("click", async () => { 
+        await supabase.auth.signOut(); 
+        await checkAuth(); 
+    });
+
     checkAuth();
 </script>
+</body>
+</html>
