@@ -61,12 +61,13 @@
     const uploadMessage = document.getElementById("uploadMessage");
 
     // =======================================================
-    // FILE UPLOAD LOGIC (FIXED)
+    // FILE UPLOAD LOGIC (REFINED)
     // =======================================================
     uploadBtn.addEventListener('click', async () => {
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        // 1. Get the current authenticated session (More reliable way)
+        const { data: { session } } = await supabase.auth.getSession();
 
-        if (sessionError || !session) {
+        if (!session) {
             uploadMessage.textContent = "Error: You must be logged in to upload a file.";
             return;
         }
@@ -108,6 +109,10 @@
             const courseSlug = result.course_slug; 
             if (!courseSlug) {
                 console.error("Server response missing course_slug:", result);
+                // Also check if the server is returning the snake_case or camelCase name
+                if (result.slug) {
+                    console.error("Found slug under 'slug'. Server needs updating to return 'course_slug'.");
+                }
                 throw new Error("Upload succeeded, but course slug was missing from server response.");
             }
 
@@ -124,7 +129,7 @@
     });
 
     // =======================================================
-    // AUTHENTICATION LOGIC (AS-IS)
+    // AUTHENTICATION LOGIC
     // =======================================================
     async function checkAuth() {
         const { data: { session } } = await supabase.auth.getSession();
@@ -144,7 +149,18 @@
         }
     }
 
-    signupBtn.addEventListener("click", async () => { /* ... signup logic ... */ });
+    // AUTH EVENT LISTENERS...
+    signupBtn.addEventListener("click", async () => { 
+        const { error } = await supabase.auth.signUp({ 
+            email: emailInput.value, 
+            password: passwordInput.value 
+        });
+        if (!error) {
+            authMessage.textContent = "Sign up successful! Please check your email for a verification link.";
+        } else {
+            authMessage.textContent = `Sign up error: ${error.message}`;
+        }
+    });
 
     loginBtn.addEventListener("click", async () => { 
         const { error } = await supabase.auth.signInWithPassword({ 
