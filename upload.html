@@ -175,10 +175,6 @@
 
       const data = await response.json();
       if (data.success) {
-  // Extract course slug from the old shareUrl (last segment of URL path)
-  const oldUrl = data.shareUrl;
-  const courseSlug = oldUrl.substring(oldUrl.lastIndexOf('/') + 1);
-
   // Construct new URL with query parameter
   const newShareUrl = data.shareUrl;
 showResult(
