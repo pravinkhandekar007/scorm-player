@@ -1,253 +1,214 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SCORM Player</title>
+    <meta charset="UTF-8">
+    <title>SCORM Course Player</title>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; }
-        .auth-box { padding: 20px; border: 1px solid #ccc; max-width: 400px; margin: 20px auto; text-align: center; }
-        .btn { padding: 10px 20px; margin: 5px; cursor: pointer; }
-        #playerContainer { height: calc(100vh - 50px); width: 100%; }
-        #courseLoadMessage { text-align: center; padding: 20px; font-size: 1.2em; }
+        body { margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4; }
+        #player-container { width: 100%; max-width: 1200px; margin: 20px auto; background-color: white; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        #course-iframe { width: 100%; height: 600px; border: none; }
+        #message { padding: 20px; text-align: center; color: red; }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
-<h1>🎓 SCORM Course Player</h1>
-
-<div id="authSection" class="auth-box">
-    <h2>Signup or Login to Access</h2>
-    <input type="email" id="email" placeholder="Email" /><br/><br/>
-    <input type="password" id="password" placeholder="Password" /><br/><br/>
-    <button id="signupBtn" class="btn">Sign Up</button>
-    <button id="loginBtn" class="btn">Login</button>
-    <button id="logoutBtn" class="btn" style="display:none;">Logout</button>
-    <p id="authMessage"></p>
+<div id="player-container">
+    <h2>SCORM Course Player</h2>
+    <div id="message">Loading...</div>
+    <iframe id="course-iframe" src="" allowfullscreen></iframe>
 </div>
 
-<div id="courseLoadMessage">Initializing player...</div>
-<div id="playerContainer" style="display:none; height: 80vh; width: 100%;">
-    <iframe id="scormIframe" style="width: 100%; height: 100%; border: none;"></iframe>
-</div>
+<script>
+    // =========================================================
+    // 1. CONFIGURATION (MUST BE ACCESSIBLE)
+    // IMPORTANT: Replace these placeholders with your actual Supabase details
+    // Ensure these variables are correctly available in your environment (e.g., loaded from a config file or defined here)
+    const SUPABASE_URL = 'https://kfksfnzpudycqbcftrev.supabase.co'; // Your actual Supabase URL
+    const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY_HERE'; // Your actual Supabase public anon key
 
-<script type="module">
-    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-    // IMPORTANT: Replace with your actual Supabase details
-    const SUPABASE_URL = "https://kfksfnzpudycqbcftrev.supabase.co";
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
+    // Initialize Supabase Client
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    
+    const messageDiv = document.getElementById('message');
+    const iframe = document.getElementById('course-iframe');
 
-    // HTML elements
-    const authSection = document.getElementById("authSection");
-    const emailInput = document.getElementById("email");
-    const passwordInput = document.getElementById("password");
-    const signupBtn = document.getElementById("signupBtn");
-    const loginBtn = document.getElementById("loginBtn");
-    const logoutBtn = document.getElementById("logoutBtn");
-    const authMessage = document.getElementById("authMessage");
-    const playerContainer = document.getElementById("playerContainer");
-    const scormIframe = document.getElementById("scormIframe");
-    const courseLoadMessage = document.getElementById("courseLoadMessage");
+    // =========================================================
+    // 2. AUTHORIZATION AND FILE FETCHING (CRITICAL FIX)
+    // This function fetches files from Edge Function 3 (proxy-scorm)
+    async function loadCourseFile(filePath) {
+        const courseSlug = new URLSearchParams(window.location.search).get('course');
+        
+        // Retrieve the current user session/JWT
+        const { data: { session } } = await supabase.auth.getSession(); 
+        
+        if (!session || !session.access_token) {
+            console.error("User session is not available. Please log in.");
+            throw new Error("User not authorized.");
+        }
+        
+        // Construct the URL to the proxy-scorm Edge Function
+        const fileUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${filePath}`;
 
-    // =======================================================
-    // SCORM 1.2 API Wrapper (LMS Adapter) - FIX for "API is not defined"
-    // =======================================================
-    function createLMSAPI(courseSlug, session) {
-        let initialized = false;
-        let terminated = false;
-        let cmi = {}; 
-        let lastError = 0;
-
-        const commitData = async () => {
-            if (terminated) return "false";
-            
-            try {
-                const response = await fetch(`${SUPABASE_URL}/functions/v1/scorm-data`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${session.access_token}`,
-                        'apikey': SUPABASE_ANON_KEY,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        action: 'commit',
-                        course_slug: courseSlug,
-                        user_id: session.user.id,
-                        cmi_data: cmi,
-                    }),
-                });
-                if (!response.ok) throw new Error("Commit failed");
-                return "true";
-            } catch (e) {
-                console.error("LMSCommit failed to save:", e);
-                lastError = 101; 
-                return "false";
+        const response = await fetch(fileUrl, {
+            method: 'GET',
+            headers: {
+                // FIX: Send the JWT for authorization in Edge Function 3
+                'Authorization': `Bearer ${session.access_token}`, 
+                'apikey': SUPABASE_ANON_KEY, 
             }
-        };
-        
-        window.API = {
-            LMSInitialize: async (param) => {
-                if (initialized) return "false";
-                initialized = true;
-                
-                try {
-                    // Fetch existing state
-                    const response = await fetch(`${SUPABASE_URL}/functions/v1/scorm-data?course_slug=${courseSlug}&user_id=${session.user.id}`, {
-                        method: 'GET',
-                        headers: { 'Authorization': `Bearer ${session.access_token}`, 'apikey': SUPABASE_ANON_KEY },
-                    });
-                    
-                    if (response.ok) {
-                        const loadedData = await response.json();
-                        // Assuming the server returns { cmi_data: {...} } or {}
-                        if (loadedData && loadedData.cmi_data) {
-                            cmi = loadedData.cmi_data; 
-                        }
-                    }
-                    
-                    // Initialize or override required CMI fields
-                    cmi['cmi.core.student_id'] = session.user.id;
-                    cmi['cmi.core.student_name'] = session.user.email;
-                    cmi['cmi.core.lesson_mode'] = 'normal';
-                    cmi['cmi.core.lesson_status'] = cmi['cmi.core.lesson_status'] || 'not attempted';
-                    cmi['cmi.core.entry'] = cmi['cmi.core.lesson_status'] === 'not attempted' ? 'ab-initio' : 'resume';
+        });
 
-                    console.log("LMSInitialize successful, CMI data:", cmi);
-                    return "true";
-                } catch (e) {
-                    console.error("LMSInitialize failed to load state:", e);
-                    lastError = 101;
-                    return "false";
-                }
-            },
-            LMSFinish: (param) => {
-                if (!initialized || terminated) return "false";
-                terminated = true;
-                commitData(); 
-                console.log("LMSFinish successful.");
-                return "true";
-            },
-            LMSGetValue: (element) => {
-                lastError = 0;
-                const value = cmi[element];
-                return value === undefined ? "" : value;
-            },
-            LMSSetValue: (element, value) => {
-                lastError = 0;
-                cmi[element] = value;
-                return "true";
-            },
-            LMSCommit: (param) => {
-                console.log("LMSCommit triggered.");
-                return commitData();
-            },
-            LMSGetLastError: () => String(lastError),
-            LMSGetErrorString: (code) => "Unknown error",
-            LMSGetDiagnostic: (code) => "No diagnostic available",
-        };
-    }
-    // =======================================================
-
-
-    async function loadCourse(session) {
-        const urlParams = new URLSearchParams(window.location.search);
-        const courseSlug = urlParams.get('course');
-        
-        if (!courseSlug) {
-            courseLoadMessage.textContent = "Error: No course slug provided in the URL.";
-            return;
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Error loading file ${filePath}: Status ${response.status}`, errorText);
+            throw new Error(`Failed to load file (${filePath}): Status ${response.status}`);
         }
 
-        courseLoadMessage.textContent = `Loading course: ${courseSlug}...`;
-        
+        // Return raw data as ArrayBuffer for binary/text handling
+        return response.arrayBuffer(); 
+    }
+
+    // =========================================================
+    // 3. SCORM MANIFEST PARSING AND LAUNCH LOGIC
+
+    /**
+     * Finds the launch URL from the imsmanifest.xml content.
+     * @param {string} xmlString - The raw XML content of imsmanifest.xml.
+     * @returns {string} The launch URL (e.g., 'scormcontent/index.html').
+     */
+    function extractLaunchUrl(xmlString) {
         try {
-            // 1. Fetch Course Metadata (Edge Function 2) - FIX: Authorization Header
-            const metadataUrl = `${SUPABASE_URL}/functions/v1/get-course/${courseSlug}`;
-            const response = await fetch(metadataUrl, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${session.access_token}`, // CRITICAL FIX: Use user's JWT
-                    'apikey': SUPABASE_ANON_KEY,
-                },
-            });
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlString, "application/xml");
             
-            if (!response.ok) {
-                // Catches the 401 error and displays it clearly
-                throw new Error(`Failed to load course metadata: ${response.status}`);
+            // Check for XML parsing errors
+            if (xmlDoc.getElementsByTagName("parsererror").length) {
+                console.error("XML Parsing Error:", xmlDoc.getElementsByTagName("parsererror")[0].textContent);
+                throw new Error("Invalid SCORM manifest XML.");
             }
 
-            const course = await response.json();
+            // Look for the main resource in the manifest (SCORM 1.2 typically)
+            // Finds the <resource> element with an 'href' attribute
+            const resource = xmlDoc.querySelector('resource[href]');
+
+            if (resource) {
+                return resource.getAttribute('href');
+            }
+
+            // Fallback for more complex manifests (SCORM 2004) - look for the first <item> in <organizations>
+            const defaultActivity = xmlDoc.querySelector('organization[default="true"] > item[identifierref][identifier]');
+            if (defaultActivity) {
+                const identifierRef = defaultActivity.getAttribute('identifierref');
+                const resourceByRef = xmlDoc.querySelector(`resource[identifier="${identifierRef}"][href]`);
+                if (resourceByRef) {
+                    return resourceByRef.getAttribute('href');
+                }
+            }
+
+            console.warn("Could not find launch URL in manifest. Defaulting to index.html.");
+            return 'index.html'; // Default SCORM launch file name
             
-            // 2. Instantiate SCORM API (must happen before iframe loads)
-            createLMSAPI(courseSlug, session); 
-
-            // 3. Construct SCORM Content Launch URL (via Edge Function 3 Proxy)
-            const launchPath = `${course.package_path}/${course.launch_url}`;
-            const scormContentUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${launchPath}`; 
-
-            // 4. Display the SCORM Content
-            scormIframe.src = scormContentUrl;
-            playerContainer.style.display = "block";
-            courseLoadMessage.style.display = "none";
-            if (authSection) authSection.style.display = "none"; 
-
-        } catch (error) {
-            console.error("Course Loading Error:", error);
-            courseLoadMessage.textContent = `❌ Error: ${error.message}`;
+        } catch (e) {
+            console.error("Error processing manifest:", e);
+            messageDiv.textContent = `Error processing manifest: ${e.message}`;
+            return null;
         }
     }
 
-
-    async function checkAuth() {
-        const { data: { session } } = await supabase.auth.getSession();
+    async function loadCourse() {
+        messageDiv.textContent = "Authenticating and fetching manifest...";
         const courseSlug = new URLSearchParams(window.location.search).get('course');
         
         if (!courseSlug) {
-            courseLoadMessage.textContent = "Welcome! Use the share link from the upload page to view a course.";
-            if (authSection) authSection.style.display = "block";
+            messageDiv.textContent = "Error: Missing 'course' slug in the URL.";
             return;
         }
 
-        if (session) {
-            if (!session.user.email_confirmed_at) {
-                authMessage.textContent = "Please verify your email.";
-                if (authSection) authSection.style.display = "block";
-            } else {
-                authMessage.textContent = `Logged in as ${session.user.email}`;
-                if (authSection) authSection.style.display = "none";
-                await loadCourse(session);
+        try {
+            // 1. Fetch the imsmanifest.xml file using the authorized function
+            const manifestArrayBuffer = await loadCourseFile('imsmanifest.xml');
+            
+            // Convert ArrayBuffer to string (manifest is always text/XML)
+            const manifestString = new TextDecoder('utf-8').decode(manifestArrayBuffer);
+
+            // 2. Extract the launch URL
+            const launchUrl = extractLaunchUrl(manifestString);
+
+            if (!launchUrl) {
+                messageDiv.textContent = "Error: Failed to determine the course launch URL from manifest.";
+                return;
             }
-            // Update auth buttons state
-            signupBtn.style.display = "none";
-            loginBtn.style.display = "none";
-            logoutBtn.style.display = "inline-block";
-        } else {
-            authMessage.textContent = "Please log in to view this course.";
-            courseLoadMessage.style.display = "none";
-            if (authSection) authSection.style.display = "block";
-            // Update auth buttons state
-            signupBtn.style.display = "inline-block";
-            loginBtn.style.display = "inline-block";
-            logoutBtn.style.display = "none";
+
+            // 3. Prepare the final launch URL to the proxy function
+            const finalLaunchPath = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${launchUrl}`;
+            
+            // 4. Set the iframe source
+            iframe.src = finalLaunchPath;
+            messageDiv.textContent = `Course loaded: ${launchUrl}`;
+            messageDiv.style.color = 'green';
+            
+        } catch (error) {
+            messageDiv.textContent = `Course Load Error: ${error.message}`;
+            console.error('Final Load Error:', error);
         }
     }
 
-    // Auth Event Listeners (Keep as-is)
-    signupBtn.addEventListener("click", async () => { /* ... signup logic ... */ });
-    loginBtn.addEventListener("click", async () => { 
-        const { error } = await supabase.auth.signInWithPassword({ email: emailInput.value, password: passwordInput.value });
-        if (!error) await checkAuth(); 
-        else authMessage.textContent = `Login error: ${error.message}`;
-    });
-    logoutBtn.addEventListener("click", async () => { 
-        await supabase.auth.signOut(); 
-        await checkAuth(); 
-    });
+    // =========================================================
+    // 4. SCORM API IMPLEMENTATION (Minimal Stub for Communication)
+    // The SCORM content expects to find an API object in the window scope.
+    // This is a minimal stub to prevent SCORM packages from crashing instantly.
 
-    // Initial check
-    checkAuth();
+    window.API = {
+        LMSInitialize: function(param) { 
+            console.log("SCORM: LMSInitialize called.");
+            return "true"; 
+        },
+        LMSFinish: function(param) { 
+            console.log("SCORM: LMSFinish called.");
+            return "true"; 
+        },
+        LMSGetValue: function(element) { 
+            console.log("SCORM: LMSGetValue called for " + element);
+            return ""; // Return empty string for now
+        },
+        LMSSetValue: function(element, value) { 
+            console.log(`SCORM: LMSSetValue called for ${element} with value ${value}`);
+            // This is where you would call a backend function (Edge Function 2) to save data
+            return "true"; 
+        },
+        LMSCommit: function(param) { 
+            console.log("SCORM: LMSCommit called.");
+            // This is where you would call Edge Function 2 to save all pending data
+            return "true"; 
+        },
+        LMSGetLastError: function() { 
+            return "0"; // No error
+        },
+        LMSGetErrorString: function(errorCode) { 
+            return "No Error"; 
+        },
+        LLMSGetDiagnostic: function(errorCode) { 
+            return ""; 
+        }
+    };
+
+    // The course content often searches for the API object in parent/opener windows
+    window.findAPI = function(win) {
+        if (win.API) {
+            return win.API;
+        } else if (win.parent && win.parent != win) {
+            return findAPI(win.parent);
+        } else if (win.opener && win.opener != win) {
+            return findAPI(win.opener);
+        }
+        return null;
+    };
+
+    // Start loading the course when the page loads
+    document.addEventListener('DOMContentLoaded', loadCourse);
+
 </script>
+
 </body>
 </html>
