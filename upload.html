@@ -1,46 +1,171 @@
-// **Corrected Logic for upload.html <script>**
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCORM File Uploader</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .auth-box, .upload-box { 
+            border: 1px solid #ccc; 
+            padding: 20px; 
+            margin-bottom: 20px; 
+            max-width: 500px; 
+            margin: 20px auto; 
+        }
+        .btn { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        input[type="email"], input[type="password"], input[type="file"] { margin-bottom: 10px; width: 90%; padding: 8px; }
+        #uploadSection { display: none; }
+    </style>
+</head>
+<body>
 
-// Assume you have defined 'supabase', 'SUPABASE_URL', and 'uploadBtn'
-uploadBtn.addEventListener('click', async () => {
-    // 1. Get the current session
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+<h1>📦 SCORM Package Uploader</h1>
 
-    if (sessionError || !session) {
-        uploadMessage.textContent = "Error: Please log in before uploading a file.";
-        return;
-    }
+<div id="authSection" class="auth-box">
+    <h2>Signup or Login to Upload</h2>
+    <input type="email" id="email" placeholder="Email" /><br/>
+    <input type="password" id="password" placeholder="Password" /><br/>
+    <button id="signupBtn" class="btn">Sign Up</button>
+    <button id="loginBtn" class="btn">Login</button>
+    <button id="logoutBtn" class="btn" style="display:none;">Logout</button>
+    <p id="authMessage"></p>
+</div>
 
-    const scormFile = document.getElementById('scormFile').files[0];
-    const userId = session.user.id; // Get the user's ID from the authenticated session
+<div id="uploadSection" class="upload-box">
+    <h2>Upload SCORM Zip File</h2>
+    <input type="file" id="scormFile" accept=".zip" /><br/>
+    <button id="uploadBtn" class="btn">Start Upload</button>
+    <p id="uploadMessage"></p>
+</div>
 
-    const formData = new FormData();
-    formData.append('scormFile', scormFile);
-    formData.append('userId', userId); // Sending ID is okay, but JWT verification is the source of truth
+<script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-    uploadMessage.textContent = 'Uploading and processing file...';
+    // IMPORTANT: Replace with your actual Supabase details
+    const SUPABASE_URL = "https://kfksfnzpudycqbcftrev.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    try {
-        const response = await fetch(`${SUPABASE_URL}/functions/v1/process-scorm-upload`, {
-            method: 'POST',
-            headers: {
-                // ✅ CRITICAL FIX: Include the Authorization header with the JWT
-                'Authorization': `Bearer ${session.access_token}`, 
-                'apikey': SUPABASE_ANON_KEY,
-            },
-            body: formData
-        });
+    // HTML elements
+    const authSection = document.getElementById("authSection");
+    const emailInput = document.getElementById("email");
+    const passwordInput = document.getElementById("password");
+    const signupBtn = document.getElementById("signupBtn");
+    const loginBtn = document.getElementById("loginBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const authMessage = document.getElementById("authMessage");
+    
+    const uploadSection = document.getElementById("uploadSection");
+    const uploadBtn = document.getElementById("uploadBtn");
+    const uploadMessage = document.getElementById("uploadMessage");
 
-        const result = await response.json();
+    // =======================================================
+    // FILE UPLOAD LOGIC
+    // =======================================================
+    uploadBtn.addEventListener('click', async () => {
+        // 1. Get the current authenticated session
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-        if (!response.ok) {
-            // Log the detailed error from the server (which contained the 401 JSON)
-            throw new Error(result.message || JSON.stringify(result));
+        if (sessionError || !session) {
+            uploadMessage.textContent = "Error: You must be logged in to upload a file.";
+            return;
         }
 
-        uploadMessage.innerHTML = `✅ Success! Course uploaded and processed. Launch URL: <a href="scorm-player.html?course=${result.course_slug}" target="_blank">Launch Course</a>`;
+        const scormFile = document.getElementById('scormFile').files[0];
+        
+        if (!scormFile) {
+            uploadMessage.textContent = "Please select a SCORM zip file.";
+            return;
+        }
 
-    } catch (error) {
-        console.error("Upload Error:", error);
-        uploadMessage.textContent = `❌ Upload failed: ${error.message}.`;
+        const userId = session.user.id;
+        const formData = new FormData();
+        formData.append('scormFile', scormFile);
+        formData.append('userId', userId);
+
+        uploadMessage.textContent = 'Uploading and processing file... This may take a moment.';
+
+        try {
+            const response = await fetch(`${SUPABASE_URL}/functions/v1/process-scorm-upload`, {
+                method: 'POST',
+                headers: {
+                    // ✅ CRITICAL FIX: Send the user's JWT (access_token) for authentication
+                    'Authorization': `Bearer ${session.access_token}`, 
+                    'apikey': SUPABASE_ANON_KEY, // Supabase requires this even with the Auth header
+                },
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                // Display the error returned by the Edge Function (like the 401 message)
+                throw new Error(result.message || JSON.stringify(result));
+            }
+
+            uploadMessage.innerHTML = `
+                ✅ Success! Course uploaded and processed.<br/>
+                **Slug:** ${result.course_slug}<br/>
+                **Launch URL:** <a href="scorm-player.html?course=${result.course_slug}" target="_blank">Launch Course</a>
+            `;
+
+        } catch (error) {
+            console.error("Upload Error:", error);
+            uploadMessage.textContent = `❌ Upload failed: ${error.message}. Check the console for details.`;
+        }
+    });
+
+    // =======================================================
+    // AUTHENTICATION LOGIC
+    // =======================================================
+    async function checkAuth() {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session) {
+            authMessage.textContent = `Logged in as ${session.user.email}`;
+            signupBtn.style.display = "none";
+            loginBtn.style.display = "none";
+            logoutBtn.style.display = "inline-block";
+            uploadSection.style.display = "block"; // Show upload section
+        } else {
+            authMessage.textContent = "Please log in to upload a SCORM package.";
+            signupBtn.style.display = "inline-block";
+            loginBtn.style.display = "inline-block";
+            logoutBtn.style.display = "none";
+            uploadSection.style.display = "none"; // Hide upload section
+        }
     }
-});
+
+    signupBtn.addEventListener("click", async () => {
+        const { error } = await supabase.auth.signUp({ 
+            email: emailInput.value, 
+            password: passwordInput.value 
+        });
+        if (!error) {
+            authMessage.textContent = "Sign up successful! Please check your email for a verification link.";
+        } else {
+            authMessage.textContent = `Sign up error: ${error.message}`;
+        }
+    });
+
+    loginBtn.addEventListener("click", async () => { 
+        const { error } = await supabase.auth.signInWithPassword({ 
+            email: emailInput.value, 
+            password: passwordInput.value 
+        });
+        if (!error) await checkAuth(); 
+        else authMessage.textContent = `Login error: ${error.message}`;
+    });
+
+    logoutBtn.addEventListener("click", async () => { 
+        await supabase.auth.signOut(); 
+        await checkAuth(); 
+        uploadMessage.textContent = ""; // Clear previous upload message
+    });
+
+    // Initial check on load
+    checkAuth();
+</script>
+</body>
+</html>
