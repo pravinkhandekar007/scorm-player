@@ -25,7 +25,7 @@
   <script>
     const SUPABASE_URL = "https://kfksfnzpudycqbcftrev.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const SUPABASE_BUCKET_URL = "https://kfksfnzpudycqbcftrev.supabase.co/storage/v1/object/public/scorm-packages/";
 
     class ScormPlayer {
@@ -105,7 +105,7 @@
 
       async loadCourse() {
         try {
-          const { data, error } = await supabase
+          const { data, error } = await supabaseClient
             .from("courses")
             .select("package_path, launch_url")
             .eq("course_slug", this.courseSlug)
@@ -114,11 +114,13 @@
           if (error || !data) throw new Error("Course not found");
 
           const contentUrl = SUPABASE_BUCKET_URL + data.package_path + "/" + data.launch_url;
+          
           const iframe = document.getElementById("content-frame");
           iframe.onload = () => {
             document.getElementById("loading").style.display = "none";
             iframe.style.display = "block";
           };
+
           iframe.src = contentUrl;
         } catch (err) {
           document.getElementById("loading").textContent = "Error loading course: " + err.message;
@@ -127,7 +129,7 @@
 
       async saveCMIData() {
         try {
-          await supabase.from("scorm_sessions").upsert({
+          await supabaseClient.from("scorm_sessions").upsert({
             session_id: this.sessionId,
             course_slug: this.courseSlug,
             cmi_data: this.cmiData
