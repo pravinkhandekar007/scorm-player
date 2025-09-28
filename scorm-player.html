@@ -8,6 +8,7 @@
     body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
     #player-container { width: 100%; height: 100vh; position: relative; }
     #content-frame { width: 100%; height: 100%; border: none; }
+    .hidden { display: none; }
     #loading {
       position: absolute; top: 50%; left: 50%;
       transform: translate(-50%, -50%);
@@ -18,7 +19,7 @@
 <body>
   <div id="player-container">
     <div id="loading">Loading SCORM content...</div>
-    <iframe id="content-frame" style="display: none;"></iframe>
+    <iframe id="content-frame" class="hidden"></iframe>
   </div>
 
   <script type="module">
@@ -116,14 +117,23 @@
 
           const contentUrl = SUPABASE_BUCKET_URL + data.package_path + "/" + data.launch_url;
 
+          console.log("Loading SCORM course URL:", contentUrl);
+
           const iframe = document.getElementById("content-frame");
           iframe.onload = () => {
-            document.getElementById("loading").style.display = "none";
-            iframe.style.display = "block";
+            console.log("SCORM content loaded from iframe.");
+            document.getElementById("loading").classList.add("hidden");
+            iframe.classList.remove("hidden");
+          };
+
+          iframe.onerror = (e) => {
+            console.error("Error loading SCORM course content.");
+            document.getElementById("loading").textContent = "Failed to load SCORM content.";
           };
 
           iframe.src = contentUrl;
         } catch (err) {
+          console.error("Error loading course metadata:", err);
           document.getElementById("loading").textContent = "Error loading course: " + err.message;
         }
       }
