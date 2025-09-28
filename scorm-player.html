@@ -9,12 +9,12 @@
       margin: 0;
       padding: 0;
       height: 100%;
+      background: #000;
     }
     #player-container {
       position: relative;
       width: 100%;
       height: 100%;
-      background: #000;
     }
     #loading {
       position: absolute;
@@ -40,121 +40,102 @@
   </div>
 
   <script type="module">
-    // 1. Import Supabase factory from ESM bundle
+    // 1. Import Supabase factory
     import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-    // 2. Initialize your Supabase client
+    // 2. Initialize Supabase client
     const SUPABASE_URL      = "https://kfksfnzpudycqbcftrev.supabase.co";
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
-    const supabase         = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const SUPABASE_ANON_KEY = "YOUR_ANON_KEY_HERE";
+    const supabase          = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // 3. Base URL for public SCORM packages bucket
-    const BUCKET_URL = "https://kfksfnzpudycqbcftrev.supabase.co/storage/v1/object/public/scorm-packages";
+    // 3. Public bucket base URL
+    const BUCKET_URL = 
+      "https://kfksfnzpudycqbcftrev.supabase.co/storage/v1/object/public/scorm-packages";
 
-    // 4. SCORM API shim and player logic
-    class ScormPlayer {
-      constructor(courseSlug) {
-        this.courseSlug = courseSlug;
-        this.sessionId  = "session_" + Date.now();
-        this.cmiData    = this._initCMI();
-        this._installAPI();
-        this._loadCourse();
+    // 4. Fetch and parse imsmanifest.xml if needed
+    async function getLaunchFile(packagePath, launchUrl) {
+      // If the stored launch_url isn't XML, return it directly
+      if (!launchUrl.toLowerCase().endsWith(".xml")) {
+        return launchUrl;
       }
 
-      _initCMI() {
-        return {
-          "cmi.core.lesson_status":   "not attempted",
-          "cmi.core.learner_id":      "anon_" + Date.now(),
-          "cmi.core.learner_name":    "Anonymous",
-          "cmi.core.score.raw":       "",
-          "cmi.core.score.max":       "100",
-          "cmi.core.score.min":       "0",
-          "cmi.core.session_time":    "00:00:00",
-          "cmi.core.total_time":      "00:00:00",
-          "cmi.core.lesson_location": "",
-          "cmi.suspend_data":         "",
-          "cmi.launch_data":          "",
-          "cmi.comments":             "",
-          "cmi.comments_from_lms":    ""
-        };
+      const manifestUrl = `${BUCKET_URL}/${packagePath}/${launchUrl}`;
+      const resp = await fetch(manifestUrl);
+      if (!resp.ok) {
+        throw new Error(`Failed to fetch manifest: ${resp.status}`);
       }
 
-      _installAPI() {
-        // SCORM 1.2
-        window.API = {
-          LMSInitialize:   () => "true",
-          LMSFinish:       () => { this._save(); return "true"; },
-          LMSGetValue:     (k) => this.cmiData[k] || "",
-          LMSSetValue:     (k, v) => { this.cmiData[k] = v; return "true"; },
-          LMSCommit:       () => { this._save(); return "true"; },
-          LMSGetLastError: () => "0",
-          LMSGetErrorString: () => "No error",
-          LMSGetDiagnostic:  () => ""
-        };
+      const xmlText = await resp.text();
+      const parser  = new DOMParser();
+      const xmlDoc  = parser.parseFromString(xmlText, "text/xml");
 
-        // SCORM 2004
-        window.API_1484_11 = {
-          Initialize:      () => "true",
-          Terminate:       () => { this._save(); return "true"; },
-          GetValue:        (k) => this.cmiData[k.replace("cmi.", "cmi.core.")] || "",
-          SetValue:        (k, v) => { this.cmiData[k.replace("cmi.", "cmi.core.")] = v; return "true"; },
-          Commit:          () => { this._save(); return "true"; },
-          GetLastError:    () => "0",
-          GetErrorString:  () => "No error",
-          GetDiagnostic:   () => ""
-        };
+      const item = xmlDoc.querySelector("organization > item");
+      if (!item) {
+        throw new Error("No <organization><item> in imsmanifest.xml");
       }
 
-      async _loadCourse() {
-        try {
-          const { data, error } = await supabase
-            .from("courses")
-            .select("package_path, launch_url")
-            .eq("course_slug", this.courseSlug)
-            .single();
+      const identifierRef = item.getAttribute("identifierref");
+      if (!identifierRef) {
+        throw new Error("Missing identifierref on <item>");
+      }
 
-          if (error || !data) {
-            throw new Error(error?.message || "Course not found");
-          }
+      const resource = xmlDoc.querySelector(
+        `resource[identifier="${identifierRef}"]`
+      );
+      if (!resource) {
+        throw new Error(`No <resource> with identifier="${identifierRef}"`);
+      }
 
-          const { package_path, launch_url } = data;
-          const contentUrl = `${BUCKET_URL}/${package_path}/${launch_url}`;
-          const iframe = document.getElementById("content-frame");
+      const href = resource.getAttribute("href");
+      if (!href) {
+        throw new Error("Resource missing href attribute");
+      }
 
-          iframe.onload = () => {
-            document.getElementById("loading").style.display = "none";
-            iframe.style.display = "block";
-          };
-          iframe.src = contentUrl;
+      return href;
+    }
 
-        } catch (err) {
-          document.getElementById("loading").textContent =
-            "Error loading course: " + err.message;
+    // 5. Main loader
+    async function loadCourse() {
+      const params = new URLSearchParams(window.location.search);
+      const courseSlug = params.get("course");
+      if (!courseSlug) {
+        document.getElementById("loading").textContent =
+          "Error: missing ?course= parameter";
+        return;
+      }
+
+      try {
+        // a. Retrieve package_path & launch_url from Supabase
+        const { data, error } = await supabase
+          .from("courses")
+          .select("package_path, launch_url")
+          .eq("course_slug", courseSlug)
+          .single();
+
+        if (error || !data) {
+          throw new Error(error?.message || "Course not found");
         }
-      }
 
-      async _save() {
-        await supabase
-          .from("scorm_sessions")
-          .upsert({
-            session_id:  this.sessionId,
-            course_slug: this.courseSlug,
-            cmi_data:    this.cmiData
-          });
+        // b. Determine the real HTML entrypoint
+        const launchFile = await getLaunchFile(
+          data.package_path,
+          data.launch_url
+        );
+
+        // c. Point iframe at the resolved URL
+        const iframe = document.getElementById("content-frame");
+        iframe.onload = () => {
+          document.getElementById("loading").style.display = "none";
+          iframe.style.display = "block";
+        };
+        iframe.src = `${BUCKET_URL}/${data.package_path}/${launchFile}`;
+      } catch (err) {
+        document.getElementById("loading").textContent =
+          "Error loading content: " + err.message;
       }
     }
 
-    // 5. Initialize player once DOM is ready
-    document.addEventListener("DOMContentLoaded", () => {
-      const params = new URLSearchParams(window.location.search);
-      const slug   = params.get("course");
-      if (!slug) {
-        document.getElementById("loading").textContent =
-          "Invalid URL: missing course parameter";
-        return;
-      }
-      new ScormPlayer(slug);
-    });
+    document.addEventListener("DOMContentLoaded", loadCourse);
   </script>
 </body>
 </html>
