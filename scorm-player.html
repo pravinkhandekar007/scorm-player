@@ -1,149 +1,150 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SCORM Player</title>
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      background: #000;
-    }
-    #player-container {
-      position: relative;
-      width: 100%;
-      height: 100%;
-    }
-    #loading {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      color: #fff;
-      font-family: Arial, sans-serif;
-      font-size: 18px;
-    }
-    #content-frame {
-      display: none;
-      width: 100%;
-      height: 100%;
-      border: none;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCORM Player</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 18px;
+        }
+        .error {
+            background: #e74c3c;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            margin: 20px;
+            border-radius: 5px;
+        }
+        .course-frame {
+            width: 100%;
+            height: 80vh;
+            border: none;
+            background: white;
+        }
+        .course-info {
+            padding: 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+        }
+    </style>
 </head>
 <body>
-  <div id="player-container">
-    <div id="loading">Loading SCORM content…</div>
-    <iframe id="content-frame"></iframe>
-  </div>
+    <div class="container">
+        <div class="header">
+            <h1>🎓 SCORM Course Player</h1>
+            <p id="courseTitle">Loading course...</p>
+        </div>
+        
+        <div id="loading" class="loading">
+            📚 Loading course content...
+        </div>
+        
+        <div id="error" class="error" style="display: none;">
+            ❌ <span id="errorMessage"></span>
+        </div>
+        
+        <div id="courseInfo" class="course-info" style="display: none;">
+            <strong>Course:</strong> <span id="courseTitleInfo"></span>
+        </div>
+        
+        <iframe id="courseFrame" class="course-frame" style="display: none;"></iframe>
+    </div>
 
-  <script type="module">
-    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-    const SUPABASE_URL      = "https://kfksfnzpudycqbcftrev.supabase.co";
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
-    const supabase          = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    <script>
+        const SUPABASE_URL = "https://kfksfnzpudycqbcftrev.supabase.co";
+        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
 
-    const PROXY_BASE =
-      "https://kfksfnzpudycqbcftrev.supabase.co/functions/v1/proxy-scorm";
+        async function loadCourse() {
+            try {
+                // Get course slug from URL
+                const urlParams = new URLSearchParams(window.location.search);
+                const courseSlug = urlParams.get('course');
+                
+                if (!courseSlug) {
+                    throw new Error('No course specified in URL');
+                }
 
-    async function getLaunchFile(packagePath, launchUrl) {
-      if (!launchUrl.toLowerCase().endsWith(".xml")) {
-        return launchUrl;
-      }
+                // Fetch course metadata
+                const response = await fetch(`${SUPABASE_URL}/functions/v1/get-course/${courseSlug}`, {
+                    headers: {
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                    }
+                });
 
-      const url =
-        `${PROXY_BASE}/scorm-packages/${packagePath}/${launchUrl}` +
-        `?apikey=${SUPABASE_ANON_KEY}`;
+                if (!response.ok) {
+                    throw new Error(`Failed to load course: ${response.status}`);
+                }
 
-      const manifestRes = await fetch(url, {
-        headers: {
-          apikey:        SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-      });
+                const course = await response.json();
+                console.log('Course data:', course);
 
-      if (!manifestRes.ok) {
-        throw new Error(`Failed to load manifest: ${manifestRes.status}`);
-      }
+                // Update UI with course info
+                document.getElementById('courseTitle').textContent = course.title;
+                document.getElementById('courseTitleInfo').textContent = course.title;
+                document.getElementById('courseInfo').style.display = 'block';
 
-      const xmlText = await manifestRes.text();
-      const parser  = new DOMParser();
-      const xmlDoc  = parser.parseFromString(xmlText, "application/xml");
+                // Load the course content
+                const launchUrl = await getLaunchFile(course);
+                
+                // Hide loading, show iframe
+                document.getElementById('loading').style.display = 'none';
+                const iframe = document.getElementById('courseFrame');
+                iframe.src = launchUrl;
+                iframe.style.display = 'block';
 
-      // Fixed selector: organizations > organization > item
-      const item = xmlDoc.querySelector("organizations > organization > item");
-      if (!item) {
-        throw new Error("Manifest missing <organizations><organization><item>");
-      }
-
-      const identifierRef = item.getAttribute("identifierref");
-      if (!identifierRef) {
-        throw new Error("Missing identifierref");
-      }
-
-      const resource = xmlDoc.querySelector(
-        `resources > resource[identifier="${identifierRef}"]`
-      );
-      if (!resource) {
-        throw new Error("No matching <resource> in manifest");
-      }
-
-      const href = resource.getAttribute("href");
-      if (!href) {
-        throw new Error("<resource> missing href attribute");
-      }
-
-      return href;
-    }
-
-    document.addEventListener("DOMContentLoaded", async () => {
-      const params     = new URLSearchParams(window.location.search);
-      const courseSlug = params.get("course");
-      if (!courseSlug) {
-        document.getElementById("loading").textContent =
-          "Error: Missing ?course= parameter";
-        return;
-      }
-
-      try {
-        const { data, error } = await supabase
-          .from("courses")
-          .select("package_path, launch_url")
-          .eq("course_slug", courseSlug)
-          .single();
-
-        if (error || !data) {
-          throw new Error(error?.message || "Course not found");
+            } catch (error) {
+                console.error('Error:', error);
+                showError(`Error loading content: ${error.message}`);
+            }
         }
 
-        const entrypoint = await getLaunchFile(
-          data.package_path,
-          data.launch_url
-        );
+        async function getLaunchFile(course) {
+            const manifestUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${course.package_path}/${course.launch_url}?apikey=${SUPABASE_ANON_KEY}`;
+            
+            console.log('Attempting to load manifest from:', manifestUrl);
+            
+            // Test if manifest exists
+            const response = await fetch(manifestUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to load manifest: ${response.status}`);
+            }
 
-        const iframe = document.getElementById("content-frame");
+            return manifestUrl;
+        }
 
-        iframe.onload = () => {
-          document.getElementById("loading").style.display = "none";
-          iframe.style.display = "block";
-        };
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('error').style.display = 'block';
+        }
 
-        iframe.onerror = () => {
-          document.getElementById("loading").textContent = "Failed to load SCORM content.";
-        };
-
-        iframe.src =
-          `${PROXY_BASE}/scorm-packages/${data.package_path}/${entrypoint}` +
-          `?apikey=${SUPABASE_ANON_KEY}`;
-
-      } catch (err) {
-        document.getElementById("loading").textContent =
-          "Error loading content: " + err.message;
-        console.error(err);
-      }
-    });
-  </script>
+        // Load course when page loads
+        document.addEventListener('DOMContentLoaded', loadCourse);
+    </script>
 </body>
 </html>
