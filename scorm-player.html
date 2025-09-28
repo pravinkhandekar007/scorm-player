@@ -112,10 +112,11 @@
         }
 
         async function getLaunchFile(course) {
-            const manifestUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${course.package_path}/${course.launch_url}`;
-            console.log('Attempting to load manifest from:', manifestUrl);
+            const baseUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${course.package_path}/${course.launch_url}`;
+            console.log('Attempting to load manifest from:', baseUrl);
 
-            const res = await fetch(manifestUrl, {
+            // Test fetch with auth headers
+            const res = await fetch(baseUrl, {
                 method: 'GET',
                 headers: {
                     'apikey': SUPABASE_ANON_KEY,
@@ -125,7 +126,8 @@
             if (!res.ok) {
                 throw new Error(`Failed to load manifest: ${res.status}`);
             }
-            return manifestUrl;
+            // Return URL with anon key appended for iframe
+            return `${baseUrl}?apikey=${SUPABASE_ANON_KEY}`;
         }
 
         function showError(message) {
