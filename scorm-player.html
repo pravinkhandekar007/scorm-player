@@ -114,7 +114,7 @@
           if (error || !data) throw new Error("Course not found");
 
           const contentUrl = SUPABASE_BUCKET_URL + data.package_path + "/" + data.launch_url;
-          
+
           const iframe = document.getElementById("content-frame");
           iframe.onload = () => {
             document.getElementById("loading").style.display = "none";
