@@ -1,85 +1,104 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SCORM Player</title>
-  <!-- styles unchanged -->
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>🎓 SCORM Course Player</h1>
-      <p id="courseTitle">Loading course...</p>
-    </div>
+<script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-    <div id="loading" class="loading">📚 Loading course content...</div>
-
-    <div id="error" class="error" style="display: none;">
-      ❌ <span id="errorMessage"></span>
-    </div>
-
-    <div id="courseInfo" class="course-info" style="display: none;">
-      <strong>Course:</strong> <span id="courseTitleInfo"></span>
-    </div>
-
-    <iframe id="courseFrame" class="course-frame" style="display: none;"></iframe>
-  </div>
-
-  <script>
     const SUPABASE_URL = "https://kfksfnzpudycqbcftrev.supabase.co";
-    const SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    async function loadCourse() {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const courseSlug = params.get("course");
-        if (!courseSlug) throw new Error("No course specified in URL");
+    const authSection = document.getElementById("authSection");
+    // ... (Keep other auth-related element definitions if you want to keep the login UI)
 
-        const metaRes = await fetch(
-          `${SUPABASE_URL}/functions/v1/get-course/${courseSlug}`,
-          {
-            headers: {
-              apikey: SUPABASE_ANON_KEY,
-              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-            },
-          }
-        );
-        if (!metaRes.ok)
-          throw new Error(`Failed to load course metadata: ${metaRes.status}`);
-        const course = await metaRes.json();
+    // --- New Player Elements (Ensure these exist in the HTML body) ---
+    // You should add these elements to the HTML body above the script:
+    // <div id="playerContainer" style="display:none; height: 100vh;">
+    //     <iframe id="scormIframe" style="width: 100%; height: 100%; border: none;"></iframe>
+    // </div>
+    // <div id="courseLoadMessage">Initializing player...</div>
+    const playerContainer = document.getElementById("playerContainer");
+    const scormIframe = document.getElementById("scormIframe");
+    const courseLoadMessage = document.getElementById("courseLoadMessage");
+    // -----------------------------------------------------------------
 
-        document.getElementById("courseTitle").textContent = course.title;
-        document.getElementById("courseTitleInfo").textContent = course.title;
-        document.getElementById("courseInfo").style.display = "block";
 
-        const launchUrl = await getLaunchFile(course);
-        document.getElementById("loading").style.display = "none";
-        const iframe = document.getElementById("courseFrame");
-        iframe.src = launchUrl;
-        iframe.style.display = "block";
-      } catch (err) {
-        console.error(err);
-        showError(`Error loading content: ${err.message}`);
-      }
+    async function loadCourse(session) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const courseSlug = urlParams.get('course');
+        
+        if (!courseSlug) {
+            courseLoadMessage.textContent = "Error: No course slug provided in the URL.";
+            return;
+        }
+
+        courseLoadMessage.textContent = `Loading course: ${courseSlug}...`;
+        
+        try {
+            // 1. Fetch Course Metadata (Edge Function 2)
+            const edgeFunctionUrl = `${SUPABASE_URL}/functions/v1/get-course/${courseSlug}`;
+
+            const response = await fetch(edgeFunctionUrl, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${session.access_token}`, // ✅ CRITICAL FIX: Use user's JWT
+                    'apikey': SUPABASE_ANON_KEY,
+                },
+            });
+            
+            if (!response.ok) {
+                // Throw an error with the status code for better debugging
+                throw new Error(`Failed to load course metadata: ${response.status}`);
+            }
+
+            const course = await response.json();
+            
+            // 2. Construct SCORM Content Launch URL (via Edge Function 3 Proxy)
+            const launchPath = `${course.package_path}/${course.launch_url}`;
+            // The third Edge Function is named `proxy-scorm`, use that path
+            const scormContentUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${launchPath}`; 
+
+            // 3. Display the SCORM Content
+            scormIframe.src = scormContentUrl;
+            
+            playerContainer.style.display = "block";
+            courseLoadMessage.style.display = "none";
+            // Hide auth section once player loads
+            if (authSection) authSection.style.display = "none"; 
+
+        } catch (error) {
+            console.error("Course Loading Error:", error);
+            courseLoadMessage.textContent = `❌ Error: ${error.message}`;
+        }
     }
 
-    async function getLaunchFile(course) {
-      // Public URL for the SCORM manifest
-      const publicUrl =
-        `${SUPABASE_URL}/storage/v1/object/public/scorm-packages/` +
-        `${course.package_path}/${course.launch_url}`;
-      console.log("Using public manifest URL:", publicUrl);
-      return publicUrl;
+
+    async function checkAuth() {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session) {
+            // ... (keep logic for updating authMessage/buttons for logged in state)
+            
+            if (!session.user.email_confirmed_at) {
+                // Handle unverified email
+                // ...
+            } else {
+                // User is authenticated, proceed to load course
+                await loadCourse(session);
+            }
+        } else {
+            // ... (keep logic for updating authMessage/buttons for logged out state)
+            
+            // Display a message prompting login if course param exists
+            const courseSlug = new URLSearchParams(window.location.search).get('course');
+            if (courseSlug) {
+                 courseLoadMessage.textContent = "Please log in to view this course.";
+                 // Show only the auth section
+                 if (authSection) authSection.style.display = "block";
+            }
+        }
     }
 
-    function showError(message) {
-      document.getElementById("loading").style.display = "none";
-      document.getElementById("errorMessage").textContent = message;
-      document.getElementById("error").style.display = "block";
-    }
-
-    document.addEventListener("DOMContentLoaded", loadCourse);
-  </script>
-</body>
-</html>
+    // (Keep signupBtn, loginBtn, logoutBtn event listeners, and helper functions)
+    // ...
+    
+    // Initial check
+    checkAuth();
+</script>
