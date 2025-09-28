@@ -1,64 +1,148 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SCORM Player</title>
   <style>
-    body { margin:0; padding:0; font-family:Arial,sans-serif; }
-    #player-container { width:100%; height:100vh; position:relative; }
-    #loading { position:absolute; top:50%; left:50%;
-      transform:translate(-50%,-50%); font-size:18px;
+    html, body { margin: 0; padding: 0; height: 100%; }
+    #player-container { position: relative; width: 100%; height: 100%; }
+    #loading {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-family: Arial, sans-serif;
+      font-size: 18px;
     }
-    iframe { width:100%; height:100%; border:none; display:none; }
+    iframe {
+      display: none;
+      width: 100%; height: 100%;
+      border: none;
+    }
   </style>
 </head>
 <body>
   <div id="player-container">
-    <div id="loading">Loading SCORM content...</div>
+    <div id="loading">Loading SCORM content…</div>
     <iframe id="content-frame"></iframe>
   </div>
 
+  <!-- 1. Load Supabase library BEFORE any code that uses it -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/supabase.min.js"></script>
+
   <script>
-    const SUPABASE_URL = "https://kfksfnzpudycqbcftrev.supabase.co";
+    // 2. Destructure createClient from the global supabase object
+    const { createClient } = supabase;
+
+    // 3. Your Supabase project URL + anon key
+    const SUPABASE_URL      = "https://kfksfnzpudycqbcftrev.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // 4. Initialize your client under a new name (avoid shadowing the global)
+    const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // 5. Base URL for publicly-accessible SCORM packages
     const SUPABASE_BUCKET_URL =
       "https://kfksfnzpudycqbcftrev.supabase.co/storage/v1/object/public/scorm-packages";
 
-    document.addEventListener("DOMContentLoaded", async () => {
-      const params = new URLSearchParams(window.location.search);
-      const courseSlug = params.get("course");
-      if (!courseSlug) return showError("Invalid course URL");
-
-      try {
-        const { data, error } = await supabase
-          .from("courses")
-          .select("package_path, launch_url")
-          .eq("course_slug", courseSlug)
-          .single();
-        if (error || !data) throw new Error("Course not found");
-
-        const { package_path, launch_url } = data;
-        const contentUrl = `${SUPABASE_BUCKET_URL}/${package_path}/${launch_url}`;
-
-        const iframe = document.getElementById("content-frame");
-        iframe.onload = () => { 
-          document.getElementById("loading").style.display = "none";
-          iframe.style.display = "block";
-        };
-        iframe.src = contentUrl;
-
-      } catch (err) {
-        showError(err.message);
+    // 6. SCORM API shim (1.2 & 2004) and course loader
+    class ScormPlayer {
+      constructor(courseSlug) {
+        this.courseSlug = courseSlug;
+        this.sessionId  = "session_" + Date.now();
+        this.cmi        = this.initCMI();
+        this.installAPI();
+        this.loadCourse();
       }
-    });
 
-    function showError(msg) {
-      const loading = document.getElementById("loading");
-      loading.textContent = "Error loading SCORM content: " + msg;
+      initCMI() {
+        return {
+          "cmi.core.lesson_status":   "not attempted",
+          "cmi.core.learner_id":      "anon_" + Date.now(),
+          "cmi.core.learner_name":    "Anonymous",
+          "cmi.core.score.raw":       "",
+          "cmi.core.score.max":       "100",
+          "cmi.core.score.min":       "0",
+          "cmi.core.session_time":    "00:00:00",
+          "cmi.core.total_time":      "00:00:00",
+          "cmi.core.lesson_location": "",
+          "cmi.suspend_data":         "",
+          "cmi.launch_data":          "",
+          "cmi.comments":             "",
+          "cmi.comments_from_lms":    ""
+        };
+      }
+
+      installAPI() {
+        // SCORM 1.2
+        window.API = {
+          LMSInitialize: () => "true",
+          LMSFinish:     () => { this.save(); return "true"; },
+          LMSGetValue:   (k) => this.cmi[k] || "",
+          LMSSetValue:   (k,v) => { this.cmi[k] = v; return "true"; },
+          LMSCommit:     () => { this.save(); return "true"; },
+          LMSGetLastError:     () => "0",
+          LMSGetErrorString:   () => "No error",
+          LMSGetDiagnostic:    () => ""
+        };
+
+        // SCORM 2004
+        window.API_1484_11 = {
+          Initialize: () => "true",
+          Terminate:  () => { this.save(); return "true"; },
+          GetValue:   (k) => this.cmi[k.replace("cmi.", "cmi.core.")] || "",
+          SetValue:   (k,v) => { this.cmi[k.replace("cmi.", "cmi.core.")] = v; return "true"; },
+          Commit:     () => { this.save(); return "true"; },
+          GetLastError:     () => "0",
+          GetErrorString:   () => "No error",
+          GetDiagnostic:    () => ""
+        };
+      }
+
+      async loadCourse() {
+        try {
+          const { data, error } = await supabaseClient
+            .from("courses")
+            .select("package_path, launch_url")
+            .eq("course_slug", this.courseSlug)
+            .single();
+
+          if (error || !data) throw new Error("Course not found");
+
+          const url = `${SUPABASE_BUCKET_URL}/${data.package_path}/${data.launch_url}`;
+          const iframe = document.getElementById("content-frame");
+
+          iframe.onload = () => {
+            document.getElementById("loading").style.display = "none";
+            iframe.style.display = "block";
+          };
+          iframe.src = url;
+        } catch (err) {
+          document.getElementById("loading").textContent =
+            "Error loading course: " + err.message;
+        }
+      }
+
+      async save() {
+        await supabaseClient.from("scorm_sessions").upsert({
+          session_id: this.sessionId,
+          course_slug: this.courseSlug,
+          cmi_data: this.cmi
+        });
+      }
     }
+
+    // 7. Kick everything off once the DOM is ready
+    document.addEventListener("DOMContentLoaded", () => {
+      const params = new URLSearchParams(window.location.search);
+      const slug   = params.get("course");
+      if (!slug) {
+        document.getElementById("loading").textContent =
+          "Invalid URL: missing course parameter";
+        return;
+      }
+      new ScormPlayer(slug);
+    });
   </script>
 </body>
 </html>
