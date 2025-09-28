@@ -63,7 +63,7 @@
             uploadButton.disabled = false;
             logoutButton.style.display = 'block';
         } else {
-            // 🎯 CORRECTED LINK: Pointing to the new login.html file
+            // FIX: Corrected link to the new login.html file
             infoDiv.innerHTML = 'You are not logged in. <a href="login.html">Click here to Log In/Sign Up.</a>';
             uploadButton.disabled = true;
             logoutButton.style.display = 'none';
@@ -80,23 +80,27 @@
     }
 
     // =========================================================
-    // 3. UPLOAD LOGIC (FIXED COURSE SLUG INITIALIZATION)
+    // 3. UPLOAD LOGIC (FIXED FILE RETRIEVAL AND FORM DATA)
 
     async function uploadFile() {
-        const file = document.getElementById('scorm-file').files[0];
+        // --- File and Title Retrieval ---
+        const fileInput = document.getElementById('scorm-file');
+        const file = fileInput.files[0]; // Get the file object
         const courseTitle = document.getElementById('course-title').value;
+        
         const statusDiv = document.getElementById('upload-status');
         const resultLinkDiv = document.getElementById('result-link');
         
         statusDiv.textContent = '';
         resultLinkDiv.innerHTML = '';
 
+        // Robust check for file presence
         if (!file || !courseTitle) {
             statusDiv.textContent = 'Please select a file and enter a course title.';
             return;
         }
 
-        // FIX: Declare and initialize courseSlug BEFORE it is used in uploadPath
+        // FIX: Declare and initialize courseSlug BEFORE it is used
         const courseUniqueId = Date.now() + '-' + crypto.randomUUID();
         const courseSlug = 'course-' + courseUniqueId; 
 
@@ -109,20 +113,22 @@
             return;
         }
 
-        // URL construction with the correctly initialized courseSlug
+        // --- FormData Construction (CRITICAL PART) ---
+        // Ensure the key 'file' matches the name expected by the Edge Function
+        const formData = new FormData();
+        formData.append('file', file, file.name); // Pass file object AND filename for robustness
+        formData.append('title', courseTitle); 
+
+        // URL construction
         const uploadPath = `${SUPABASE_URL}/functions/v1/process-scorm-upload?course=${courseSlug}`; 
         
         statusDiv.textContent = `Uploading file "${file.name}"...`;
         
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('title', courseTitle); 
-
         try {
+            // Fetch request (NOTE: Content-Type header MUST NOT be set, let the browser handle it for FormData)
             const response = await fetch(uploadPath, {
                 method: 'POST',
                 headers: {
-                    // Send JWT and API key for authorization
                     'Authorization': `Bearer ${session.access_token}`, 
                     'apikey': SUPABASE_ANON_KEY,
                 },
