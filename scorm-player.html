@@ -40,25 +40,28 @@
   </div>
 
   <script type="module">
-    // 1. Supabase client for metadata lookup
+    // 1) Supabase client for metadata lookup
     import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
     const SUPABASE_URL      = "https://kfksfnzpudycqbcftrev.supabase.co";
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs"; 
+    const SUPABASE_ANON_KEY = "YOUR_ANON_KEY_HERE";
     const supabase          = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // 2. Point at your proxy edge function
-    const PROXY_BASE = 
+    // 2) Your proxy endpoint base
+    const PROXY_BASE =
       "https://kfksfnzpudycqbcftrev.supabase.co/functions/v1/proxy-scorm";
 
-    // 3. Fetch & parse imsmanifest.xml through proxy, supplying anon key
+    // 3) Fetch & parse imsmanifest.xml via proxy, sending anon key
     async function getLaunchFile(packagePath, launchUrl) {
+      // If the launchUrl is not an XML manifest, return it directly
       if (!launchUrl.toLowerCase().endsWith(".xml")) {
         return launchUrl;
       }
 
-      // include anon key on the URL and in headers
-      const url = `${PROXY_BASE}/scorm-packages/${packagePath}/${launchUrl}` +
-                  `?apikey=${SUPABASE_ANON_KEY}`;
+      // Build the manifest URL with ?apikey= (not as a slash)
+      const url =
+        `${PROXY_BASE}/scorm-packages/${packagePath}/${launchUrl}` +
+        `?apikey=${SUPABASE_ANON_KEY}`;
+
       const manifestRes = await fetch(url, {
         headers: {
           apikey:        SUPABASE_ANON_KEY,
@@ -72,7 +75,7 @@
 
       const xmlText = await manifestRes.text();
       const parser  = new DOMParser();
-      const xmlDoc  = parser.parseFromString(xmlText, "text/xml");
+      const xmlDoc  = parser.parseFromString(xmlText, "application/xml");
 
       const item = xmlDoc.querySelector("organization > item");
       if (!item) {
@@ -99,7 +102,7 @@
       return href;
     }
 
-    // 4. Main loader: look up course, resolve launch file, set iframe.src
+    // 4) Main loader: lookup course record, resolve entrypoint, set iframe.src
     document.addEventListener("DOMContentLoaded", async () => {
       const params     = new URLSearchParams(window.location.search);
       const courseSlug = params.get("course");
@@ -110,28 +113,31 @@
       }
 
       try {
+        // Fetch your course metadata (package_path + launch_url)
         const { data, error } = await supabase
           .from("courses")
           .select("package_path, launch_url")
           .eq("course_slug", courseSlug)
           .single();
+
         if (error || !data) {
           throw new Error(error?.message || "Course not found");
         }
 
-        // resolve imsmanifest.xml → HTML entrypoint if needed
+        // If it's imsmanifest.xml, fetch & parse it to get the real entrypoint
         const entrypoint = await getLaunchFile(
           data.package_path,
           data.launch_url
         );
 
+        // Once we know the real entry HTML/JS, load it in the iframe
         const iframe = document.getElementById("content-frame");
         iframe.onload = () => {
           document.getElementById("loading").style.display = "none";
           iframe.style.display = "block";
         };
 
-        // include anon key as query-param for the iframe navigation
+        // Append ?apikey= to satisfy the Functions gateway on iframe navigation
         iframe.src =
           `${PROXY_BASE}/scorm-packages/${data.package_path}/${entrypoint}` +
           `?apikey=${SUPABASE_ANON_KEY}`;
