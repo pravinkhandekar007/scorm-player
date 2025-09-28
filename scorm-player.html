@@ -1,168 +1,64 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>SCORM Player</title>
   <style>
-    body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
-    #player-container { width: 100%; height: 100vh; position: relative; }
-    #content-frame { width: 100%; height: 100%; border: none; }
-    .hidden { display: none; }
-    #loading {
-      position: absolute; top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 18px;
+    body { margin:0; padding:0; font-family:Arial,sans-serif; }
+    #player-container { width:100%; height:100vh; position:relative; }
+    #loading { position:absolute; top:50%; left:50%;
+      transform:translate(-50%,-50%); font-size:18px;
     }
+    iframe { width:100%; height:100%; border:none; display:none; }
   </style>
 </head>
 <body>
   <div id="player-container">
     <div id="loading">Loading SCORM content...</div>
-    <iframe id="content-frame" class="hidden"></iframe>
+    <iframe id="content-frame"></iframe>
   </div>
 
-  <script type="module">
-    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/supabase.min.js"></script>
+  <script>
+    const SUPABASE_URL = "https://kfksfnzpudycqbcftrev.supabase.co";
+    const SUPABASE_ANON_KEY = "YOUR_ANON_KEY_HERE";
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const SUPABASE_BUCKET_URL =
+      "https://kfksfnzpudycqbcftrev.supabase.co/storage/v1/object/public/scorm-packages";
 
-    const SUPABASE_PROJECT_URL = "https://kfksfnzpudycqbcftrev.supabase.co";
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs";
-    const supabaseClient = createClient(SUPABASE_PROJECT_URL, SUPABASE_ANON_KEY);
+    document.addEventListener("DOMContentLoaded", async () => {
+      const params = new URLSearchParams(window.location.search);
+      const courseSlug = params.get("course");
+      if (!courseSlug) return showError("Invalid course URL");
 
-    // Proxy edge function base URL (update with your actual deployed proxy URL)
-    const PROXY_EDGE_FUNCTION_BASE_URL = "https://kfksfnzpudycqbcftrev.functions.supabase.co/proxy/";
+      try {
+        const { data, error } = await supabase
+          .from("courses")
+          .select("package_path, launch_url")
+          .eq("course_slug", courseSlug)
+          .single();
+        if (error || !data) throw new Error("Course not found");
 
-    class ScormPlayer {
-      constructor(courseSlug) {
-        this.courseSlug = courseSlug;
-        this.sessionId = 'session_' + Date.now();
-        this.cmiData = this.initializeCMI();
-        this.setupAPI();
-        this.loadCourse();
-      }
+        const { package_path, launch_url } = data;
+        const contentUrl = `${SUPABASE_BUCKET_URL}/${package_path}/${launch_url}`;
 
-      initializeCMI() {
-        return {
-          "cmi.core.lesson_status": "not attempted",
-          "cmi.core.entry": "ab-initio",
-          "cmi.core.learner_id": "anonymous_" + Date.now(),
-          "cmi.core.learner_name": "Anonymous User",
-          "cmi.core.score.raw": "",
-          "cmi.core.score.max": "100",
-          "cmi.core.score.min": "0",
-          "cmi.core.session_time": "00:00:00",
-          "cmi.core.total_time": "00:00:00",
-          "cmi.suspend_data": "",
-          "cmi.launch_data": "",
-          "cmi.comments": "",
-          "cmi.comments_from_lms": "",
-          "cmi.core.lesson_location": ""
+        const iframe = document.getElementById("content-frame");
+        iframe.onload = () => { 
+          document.getElementById("loading").style.display = "none";
+          iframe.style.display = "block";
         };
-      }
+        iframe.src = contentUrl;
 
-      setupAPI() {
-        window.API = {
-          LMSInitialize: () => "true",
-          LMSFinish: () => { this.saveCMIData(); return "true"; },
-          LMSGetValue: (element) => this.cmiData[element] || "",
-          LMSSetValue: (element, value) => { this.cmiData[element] = value; return "true"; },
-          LMSCommit: () => { this.saveCMIData(); return "true"; },
-          LMSGetLastError: () => "0",
-          LMSGetErrorString: () => "No Error",
-          LMSGetDiagnostic: () => ""
-        };
-
-        window.API_1484_11 = {
-          Initialize: () => "true",
-          Terminate: () => { this.saveCMIData(); return "true"; },
-          GetValue: (element) => {
-            const map = {
-              "cmi.completion_status": "cmi.core.lesson_status",
-              "cmi.learner_id": "cmi.core.learner_id",
-              "cmi.learner_name": "cmi.core.learner_name",
-              "cmi.location": "cmi.core.lesson_location",
-              "cmi.score.raw": "cmi.core.score.raw",
-              "cmi.score.max": "cmi.core.score.max",
-              "cmi.score.min": "cmi.core.score.min"
-            };
-            return this.cmiData[map[element]] || "";
-          },
-          SetValue: (element, value) => {
-            const map = {
-              "cmi.completion_status": "cmi.core.lesson_status",
-              "cmi.learner_id": "cmi.core.learner_id",
-              "cmi.learner_name": "cmi.core.learner_name",
-              "cmi.location": "cmi.core.lesson_location",
-              "cmi.score.raw": "cmi.core.score.raw",
-              "cmi.score.max": "cmi.core.score.max",
-              "cmi.score.min": "cmi.core.score.min"
-            };
-            this.cmiData[map[element]] = value;
-            return "true";
-          },
-          Commit: () => { this.saveCMIData(); return "true"; },
-          GetLastError: () => "0",
-          GetErrorString: () => "No Error",
-          GetDiagnostic: () => ""
-        };
-      }
-
-      async loadCourse() {
-        try {
-          const { data, error } = await supabaseClient
-            .from("courses")
-            .select("package_path, launch_url")
-            .eq("course_slug", this.courseSlug)
-            .single();
-
-          if (error || !data) throw new Error("Course not found");
-
-          // Build proxied URL to fix CSP issues
-          const proxiedContentUrl = PROXY_EDGE_FUNCTION_BASE_URL + `scorm-packages/${data.package_path}/${data.launch_url}`;
-
-          console.log("Loading SCORM course URL via proxy:", proxiedContentUrl);
-
-          const iframe = document.getElementById("content-frame");
-          iframe.onload = () => {
-            console.log("SCORM content loaded from iframe.");
-            document.getElementById("loading").classList.add("hidden");
-            iframe.classList.remove("hidden");
-          };
-
-          iframe.onerror = () => {
-            console.error("Error loading SCORM course content.");
-            document.getElementById("loading").textContent = "Failed to load SCORM content.";
-          };
-
-          iframe.src = proxiedContentUrl;
-        } catch (err) {
-          console.error("Error loading course metadata:", err);
-          document.getElementById("loading").textContent = "Error loading course: " + err.message;
-        }
-      }
-
-      async saveCMIData() {
-        try {
-          await supabaseClient.from("scorm_sessions").upsert({
-            session_id: this.sessionId,
-            course_slug: this.courseSlug,
-            cmi_data: this.cmiData
-          });
-        } catch (err) {
-          console.error("Error saving CMI data:", err);
-        }
-      }
-    }
-
-    document.addEventListener("DOMContentLoaded", () => {
-      const urlParams = new URLSearchParams(window.location.search);
-      const courseSlug = urlParams.get("course");
-      if (courseSlug) {
-        new ScormPlayer(courseSlug);
-      } else {
-        document.getElementById("loading").textContent = "Invalid course URL";
+      } catch (err) {
+        showError(err.message);
       }
     });
+
+    function showError(msg) {
+      const loading = document.getElementById("loading");
+      loading.textContent = "Error loading SCORM content: " + msg;
+    }
   </script>
 </body>
 </html>
