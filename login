@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>User Login / Sign Up</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f7f7f7; }
+        .container { max-width: 400px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h2 { text-align: center; color: #1e1e1e; margin-bottom: 20px; }
+        label { display: block; margin-top: 15px; font-weight: bold; }
+        input[type="email"], input[type="password"] { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: #007bff; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; width: 100%; margin-top: 20px; font-size: 16px; transition: background-color 0.3s; }
+        button:hover { background-color: #0056b3; }
+        #auth-status { margin-top: 15px; text-align: center; font-weight: bold; color: green; }
+        .switch-link { text-align: center; margin-top: 15px; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="container">
+    <h2 id="form-header">Sign In</h2>
+    
+    <form id="auth-form">
+        <label for="email">Email:</label>
+        <input type="email" id="email" required>
+
+        <label for="password">Password:</label>
+        <input type="password" id="password" required>
+
+        <button type="submit" id="submit-button">Sign In</button>
+    </form>
+
+    <div id="auth-status"></div>
+    
+    <div class="switch-link">
+        <a href="#" id="toggle-auth">Need an account? Sign Up</a>
+    </div>
+</div>
+
+<script>
+    // =========================================================
+    // 1. CONFIGURATION (REPLACE PLACEHOLDERS)
+    const SUPABASE_URL = 'https://kfksfnzpudycqbcftrev.supabase.co'; // Your actual Supabase URL
+    const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY_HERE'; // Your actual Supabase public anon key
+    
+    // Initialize Supabase Client
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // =========================================================
+    // 2. AUTHENTICATION LOGIC
+    
+    let isSigningUp = false; // State variable for the form
+
+    const authForm = document.getElementById('auth-form');
+    const submitButton = document.getElementById('submit-button');
+    const formHeader = document.getElementById('form-header');
+    const toggleAuth = document.getElementById('toggle-auth');
+    const authStatus = document.getElementById('auth-status');
+
+    // Handle form submission (Sign In or Sign Up)
+    authForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        authStatus.textContent = '';
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        
+        submitButton.disabled = true;
+        authStatus.textContent = isSigningUp ? 'Signing up...' : 'Signing in...';
+
+        let response;
+        if (isSigningUp) {
+            response = await supabase.auth.signUp({ email, password });
+        } else {
+            response = await supabase.auth.signInWithPassword({ email, password });
+        }
+
+        submitButton.disabled = false;
+        
+        if (response.error) {
+            authStatus.textContent = `Error: ${response.error.message}`;
+            authStatus.style.color = 'red';
+            console.error(response.error);
+        } else {
+            if (isSigningUp && response.data.user) {
+                authStatus.textContent = 'Sign Up Successful! Check your email for confirmation.';
+                authStatus.style.color = 'orange';
+                // Reset form fields
+                document.getElementById('email').value = '';
+                document.getElementById('password').value = '';
+            } else if (response.data.session) {
+                authStatus.textContent = 'Sign In Successful! Redirecting...';
+                authStatus.style.color = 'green';
+                // Redirect user to the main upload page upon successful login
+                window.location.href = 'upload.html'; 
+            } else {
+                authStatus.textContent = 'Authentication was sent successfully. Please proceed.';
+                authStatus.style.color = 'green';
+            }
+        }
+    });
+
+    // Toggle between Sign In and Sign Up forms
+    toggleAuth.addEventListener('click', (e) => {
+        e.preventDefault();
+        isSigningUp = !isSigningUp;
+        authStatus.textContent = '';
+        document.getElementById('email').value = '';
+        document.getElementById('password').value = '';
+
+        if (isSigningUp) {
+            formHeader.textContent = 'Sign Up';
+            submitButton.textContent = 'Sign Up';
+            toggleAuth.textContent = 'Have an account? Sign In';
+        } else {
+            formHeader.textContent = 'Sign In';
+            submitButton.textContent = 'Sign In';
+            toggleAuth.textContent = 'Need an account? Sign Up';
+        }
+    });
+
+    // Check if user is already logged in on page load
+    supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+            authStatus.textContent = 'You are already logged in. Redirecting to upload page...';
+            authStatus.style.color = 'blue';
+            window.location.href = 'upload.html';
+        }
+    });
+</script>
+
+</body>
+</html>
