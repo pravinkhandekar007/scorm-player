@@ -14,12 +14,15 @@
         button:hover { background-color: #0056b3; }
         #upload-status { margin-top: 15px; text-align: center; font-weight: bold; }
         #login-info { margin-bottom: 20px; padding: 10px; background-color: #e9ecef; border-radius: 4px; text-align: center; }
+        #logout-button { background-color: #dc3545; width: auto; padding: 8px 15px; float: right; margin-top: -30px; }
+        #logout-button:hover { background-color: #c82333; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
 <div class="container">
+    <button id="logout-button" style="display:none;" onclick="logout()">Log Out</button>
     <h2>Upload SCORM Package</h2>
     
     <div id="login-info">Please log in to proceed with the upload.</div>
@@ -42,26 +45,38 @@
     // =========================================================
     // 1. CONFIGURATION (REPLACE PLACEHOLDERS)
     const SUPABASE_URL = 'https://kfksfnzpudycqbcftrev.supabase.co'; // Your actual Supabase URL
-    const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY_HERE'; // Your actual Supabase public anon key
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs'; // Your actual Supabase public anon key
     
     // Initialize Supabase Client
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // =========================================================
-    // 2. AUTHENTICATION CHECK
+    // 2. AUTHENTICATION CHECK & LOGOUT
     async function checkAuth() {
         const { data: { user } } = await supabase.auth.getUser();
         const infoDiv = document.getElementById('login-info');
         const uploadButton = document.getElementById('upload-button');
+        const logoutButton = document.getElementById('logout-button');
 
         if (user) {
             infoDiv.textContent = `Logged in as: ${user.email}. Ready to upload.`;
             uploadButton.disabled = false;
+            logoutButton.style.display = 'block';
         } else {
-            // 🎯 FIXED PATH: Using simple relative path 'login.html'
-            infoDiv.innerHTML = 'You are not logged in. <a href="login.html">Please log in.</a>';
+            // 🎯 CORRECTED LINK: Pointing to the new login.html file
+            infoDiv.innerHTML = 'You are not logged in. <a href="login.html">Click here to Log In/Sign Up.</a>';
             uploadButton.disabled = true;
+            logoutButton.style.display = 'none';
         }
+    }
+
+    async function logout() {
+        const { error } = await supabase.auth.signOut();
+        if (error) {
+            console.error('Logout error:', error.message);
+        }
+        // Redirect to login page after logout
+        window.location.href = 'login.html'; 
     }
 
     // =========================================================
@@ -81,7 +96,7 @@
             return;
         }
 
-        // 🎯 FIX: Declare and initialize courseSlug BEFORE it is used in uploadPath
+        // FIX: Declare and initialize courseSlug BEFORE it is used in uploadPath
         const courseUniqueId = Date.now() + '-' + crypto.randomUUID();
         const courseSlug = 'course-' + courseUniqueId; 
 
@@ -111,7 +126,7 @@
                     'Authorization': `Bearer ${session.access_token}`, 
                     'apikey': SUPABASE_ANON_KEY,
                 },
-                body: formData, // FormData must be passed as the body without setting Content-Type
+                body: formData,
             });
 
             const responseText = await response.text();
