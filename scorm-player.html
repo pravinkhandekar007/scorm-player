@@ -115,7 +115,8 @@
 
           if (error || !data) throw new Error("Course not found");
 
-          const contentUrl = SUPABASE_BUCKET_URL + data.package_path + "/" + data.launch_url;
+          // Properly build the SCORM content URL using dynamic launch_url from DB
+          const contentUrl = `${SUPABASE_BUCKET_URL}${data.package_path}/${data.launch_url}`;
 
           console.log("Loading SCORM course URL:", contentUrl);
 
@@ -126,7 +127,7 @@
             iframe.classList.remove("hidden");
           };
 
-          iframe.onerror = (e) => {
+          iframe.onerror = () => {
             console.error("Error loading SCORM course content.");
             document.getElementById("loading").textContent = "Failed to load SCORM content.";
           };
