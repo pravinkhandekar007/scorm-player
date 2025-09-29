@@ -32,27 +32,30 @@
     const iframe = document.getElementById('course-iframe');
     const courseSlug = new URLSearchParams(window.location.search).get('course');
     
-    // Global variable to hold the token, set once at initialization
+    // Global variable to hold the token, set by the listener
     let userAccessToken = null;
 
     // =========================================================
     // 2. AUTHORIZATION AND FILE FETCHING (CRITICAL FIX: Use global token)
     
-    // 🎯 FIX: loadCourseFile now uses the global userAccessToken variable
     async function loadCourseFile(filePath) {
+        // If the file is the initial manifest, we MUST send the token.
+        // If it's a content file, the Edge Function should allow it, but we send it just in case.
         if (!userAccessToken) {
-            console.error("Authentication Error: userAccessToken is not set.");
-            throw new Error("User not authorized. Session missing.");
+             // For debugging: If the token is still null here, the auth check failed.
+            console.error("loadCourseFile called without a token. This should only happen if auth failed.");
         }
         
+        // Use the token if it exists; otherwise, send an empty header (Edge Function handles the check)
+        const authorizationHeader = userAccessToken ? `Bearer ${userAccessToken}` : '';
+
         // Construct the URL to the proxy-scorm Edge Function
         const fileUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${filePath}`;
 
         const response = await fetch(fileUrl, {
             method: 'GET',
             headers: {
-                // THE CRITICAL FIX: Send the Bearer Token from the globally stored variable
-                'Authorization': `Bearer ${userAccessToken}`, 
+                'Authorization': authorizationHeader, 
                 'apikey': SUPABASE_ANON_KEY, 
             }
         });
@@ -93,46 +96,24 @@
                     return resourceByRef.getAttribute('href');
                 }
             }
-
-            console.warn("Could not find launch URL in manifest. Defaulting to index.html.");
             return 'index.html'; 
             
         } catch (e) {
-            console.error("Error processing manifest:", e);
             messageDiv.textContent = `Error processing manifest: ${e.message}`;
             return null;
         }
     }
 
-    async function loadCourse() {
-        messageDiv.textContent = "Authenticating and fetching manifest...";
+    async function launchCourse() {
+        messageDiv.textContent = "Fetching manifest...";
         
-        if (!courseSlug) {
-            messageDiv.textContent = "Error: Missing 'course' slug in the URL.";
-            return;
-        }
-
         try {
-            // 🎯 FIX: 1. Get the session ONCE before fetching files
-            const { data: { session } } = await supabase.auth.getSession(); 
-            
-            if (!session || !session.access_token) {
-                messageDiv.textContent = "Authentication Error: User session not found. Please log in.";
-                messageDiv.style.color = 'red';
-                console.error("User session is not available. Cannot fetch course.");
-                return;
-            }
-            
-            // Set the global token for loadCourseFile to use
-            userAccessToken = session.access_token;
-
-            // 2. Fetch the imsmanifest.xml file using the authorized function
+            // 1. Fetch the imsmanifest.xml file using the authorized function
             const manifestArrayBuffer = await loadCourseFile('imsmanifest.xml');
             
-            // Convert ArrayBuffer to string (manifest is always text/XML)
             const manifestString = new TextDecoder('utf-8').decode(manifestArrayBuffer);
 
-            // 3. Extract the launch URL
+            // 2. Extract the launch URL
             const launchUrl = extractLaunchUrl(manifestString);
 
             if (!launchUrl) {
@@ -140,21 +121,16 @@
                 return;
             }
 
-            // 4. Prepare the final launch URL to the proxy function
+            // 3. Prepare the final launch URL to the proxy function
             const finalLaunchPath = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${launchUrl}`;
             
-            // 5. Set the iframe source
+            // 4. Set the iframe source
             iframe.src = finalLaunchPath;
             messageDiv.textContent = `Course content launched.`;
             messageDiv.style.color = 'green';
             
         } catch (error) {
-            // Check for the specific 401 error message if available
-            if (error.message.includes("Status 401") || error.message.includes("Unauthorized")) {
-                messageDiv.textContent = "Authentication Failed: Please ensure you are logged in correctly.";
-            } else {
-                messageDiv.textContent = `Course Load Error: ${error.message}`;
-            }
+            messageDiv.textContent = `Course Load Error: ${error.message}`;
             console.error('Final Load Error:', error);
         }
     }
@@ -184,10 +160,36 @@
         return null;
     };
 
-    // Start loading the course when the page loads
-    document.addEventListener('DOMContentLoaded', loadCourse);
+    // =========================================================
+    // 5. INITIALIZATION (CRITICAL FIX: Wait for Supabase session)
+    
+    document.addEventListener('DOMContentLoaded', () => {
+        if (!courseSlug) {
+            messageDiv.textContent = "Error: Missing 'course' slug in the URL.";
+            return;
+        }
+
+        messageDiv.textContent = "Waiting for user session...";
+        
+        // 🎯 FIX: Listen for auth state change to ensure the session is fully restored
+        supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || (event === 'INITIAL_SESSION' && session)) {
+                
+                // If the session is good, store the token globally
+                userAccessToken = session.access_token;
+                
+                // Only launch the course once the token is retrieved
+                launchCourse();
+                
+            } else if (event === 'SIGNED_OUT' || (event === 'INITIAL_SESSION' && !session)) {
+                // If the user is definitely signed out, stop loading and show error
+                userAccessToken = null;
+                messageDiv.textContent = "Authentication Failed: User must be signed in to view this course.";
+                messageDiv.style.color = 'red';
+            }
+        });
+    });
 
 </script>
-
 </body>
 </html>
