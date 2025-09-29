@@ -21,29 +21,28 @@
 
 <script>
     // =========================================================
-    // 1. CONFIGURATION (MUST BE ACCESSIBLE)
+    // 1. CONFIGURATION
     // IMPORTANT: Replace these placeholders with your actual Supabase details
-    const SUPABASE_URL = 'https://kfksfnzpudycqbcftrev.supabase.co'; // Your actual Supabase URL
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs'; // Your actual Supabase public anon key
+    const SUPABASE_URL = 'https://kfksfnzpudycqbcftrev.supabase.co'; 
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs'; 
 
-    // Initialize Supabase Client (FIXED: Use window.supabase.createClient to resolve ReferenceError)
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     
     const messageDiv = document.getElementById('message');
     const iframe = document.getElementById('course-iframe');
+    const courseSlug = new URLSearchParams(window.location.search).get('course');
+    
+    // Global variable to hold the token, set once at initialization
+    let userAccessToken = null;
 
     // =========================================================
-    // 2. AUTHORIZATION AND FILE FETCHING (CRITICAL FIX)
-    // This function fetches files from Edge Function 3 (proxy-scorm)
+    // 2. AUTHORIZATION AND FILE FETCHING (CRITICAL FIX: Use global token)
+    
+    // 🎯 FIX: loadCourseFile now uses the global userAccessToken variable
     async function loadCourseFile(filePath) {
-        const courseSlug = new URLSearchParams(window.location.search).get('course');
-        
-        // Retrieve the current user session/JWT
-        const { data: { session } } = await supabase.auth.getSession(); 
-        
-        if (!session || !session.access_token) {
-            console.error("User session is not available. Please log in.");
-            throw new Error("User not authorized.");
+        if (!userAccessToken) {
+            console.error("Authentication Error: userAccessToken is not set.");
+            throw new Error("User not authorized. Session missing.");
         }
         
         // Construct the URL to the proxy-scorm Edge Function
@@ -52,8 +51,8 @@
         const response = await fetch(fileUrl, {
             method: 'GET',
             headers: {
-                // FIX: Send the JWT for authorization in Edge Function 3
-                'Authorization': `Bearer ${session.access_token}`, 
+                // THE CRITICAL FIX: Send the Bearer Token from the globally stored variable
+                'Authorization': `Bearer ${userAccessToken}`, 
                 'apikey': SUPABASE_ANON_KEY, 
             }
         });
@@ -64,37 +63,28 @@
             throw new Error(`Failed to load file (${filePath}): Status ${response.status}`);
         }
 
-        // Return raw data as ArrayBuffer for binary/text handling
         return response.arrayBuffer(); 
     }
 
     // =========================================================
-    // 3. SCORM MANIFEST PARSING AND LAUNCH LOGIC
+    // 3. SCORM MANIFEST PARSING AND LAUNCH LOGIC (Kept the same)
 
-    /**
-     * Finds the launch URL from the imsmanifest.xml content.
-     * @param {string} xmlString - The raw XML content of imsmanifest.xml.
-     * @returns {string} The launch URL (e.g., 'scormcontent/index.html').
-     */
     function extractLaunchUrl(xmlString) {
         try {
             const parser = new DOMParser();
             const xmlDoc = parser.parseFromString(xmlString, "application/xml");
             
-            // Check for XML parsing errors
             if (xmlDoc.getElementsByTagName("parsererror").length) {
                 console.error("XML Parsing Error:", xmlDoc.getElementsByTagName("parsererror")[0].textContent);
                 throw new Error("Invalid SCORM manifest XML.");
             }
 
-            // Look for the main resource in the manifest (SCORM 1.2 typically)
             const resource = xmlDoc.querySelector('resource[href]');
 
             if (resource) {
                 return resource.getAttribute('href');
             }
 
-            // Fallback for more complex manifests (SCORM 2004)
             const defaultActivity = xmlDoc.querySelector('organization[default="true"] > item[identifierref][identifier]');
             if (defaultActivity) {
                 const identifierRef = defaultActivity.getAttribute('identifierref');
@@ -116,7 +106,6 @@
 
     async function loadCourse() {
         messageDiv.textContent = "Authenticating and fetching manifest...";
-        const courseSlug = new URLSearchParams(window.location.search).get('course');
         
         if (!courseSlug) {
             messageDiv.textContent = "Error: Missing 'course' slug in the URL.";
@@ -124,13 +113,26 @@
         }
 
         try {
-            // 1. Fetch the imsmanifest.xml file using the authorized function
+            // 🎯 FIX: 1. Get the session ONCE before fetching files
+            const { data: { session } } = await supabase.auth.getSession(); 
+            
+            if (!session || !session.access_token) {
+                messageDiv.textContent = "Authentication Error: User session not found. Please log in.";
+                messageDiv.style.color = 'red';
+                console.error("User session is not available. Cannot fetch course.");
+                return;
+            }
+            
+            // Set the global token for loadCourseFile to use
+            userAccessToken = session.access_token;
+
+            // 2. Fetch the imsmanifest.xml file using the authorized function
             const manifestArrayBuffer = await loadCourseFile('imsmanifest.xml');
             
             // Convert ArrayBuffer to string (manifest is always text/XML)
             const manifestString = new TextDecoder('utf-8').decode(manifestArrayBuffer);
 
-            // 2. Extract the launch URL
+            // 3. Extract the launch URL
             const launchUrl = extractLaunchUrl(manifestString);
 
             if (!launchUrl) {
@@ -138,62 +140,39 @@
                 return;
             }
 
-            // 3. Prepare the final launch URL to the proxy function
-            // Note: SCORM needs the path to be relative to the launch file, but since 
-            // the iframe will be running on the proxy-scorm URL, we set the iframe source to the launch path.
+            // 4. Prepare the final launch URL to the proxy function
             const finalLaunchPath = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${launchUrl}`;
             
-            // 4. Set the iframe source
+            // 5. Set the iframe source
             iframe.src = finalLaunchPath;
             messageDiv.textContent = `Course content launched.`;
             messageDiv.style.color = 'green';
             
         } catch (error) {
-            messageDiv.textContent = `Course Load Error: ${error.message}`;
+            // Check for the specific 401 error message if available
+            if (error.message.includes("Status 401") || error.message.includes("Unauthorized")) {
+                messageDiv.textContent = "Authentication Failed: Please ensure you are logged in correctly.";
+            } else {
+                messageDiv.textContent = `Course Load Error: ${error.message}`;
+            }
             console.error('Final Load Error:', error);
         }
     }
 
     // =========================================================
-    // 4. SCORM API IMPLEMENTATION (Minimal Stub for Communication)
-    // The SCORM content expects to find an API object in the window scope.
-
+    // 4. SCORM API IMPLEMENTATION (Minimal Stub for Communication) (Kept the same)
+    
     window.API = {
-        LMSInitialize: function(param) { 
-            console.log("SCORM: LMSInitialize called.");
-            return "true"; 
-        },
-        LMSFinish: function(param) { 
-            console.log("SCORM: LMSFinish called.");
-            return "true"; 
-        },
-        LMSGetValue: function(element) { 
-            console.log("SCORM: LMSGetValue called for " + element);
-            // In a real implementation, this would call Edge Function 2 to retrieve data
-            return ""; 
-        },
-        LMSSetValue: function(element, value) { 
-            console.log(`SCORM: LMSSetValue called for ${element} with value ${value}`);
-            // In a real implementation, this would call Edge Function 2 to save data
-            return "true"; 
-        },
-        LMSCommit: function(param) { 
-            console.log("SCORM: LMSCommit called.");
-            // In a real implementation, this would call Edge Function 2 to save pending data
-            return "true"; 
-        },
-        LMSGetLastError: function() { 
-            return "0"; // No error
-        },
-        LMSGetErrorString: function(errorCode) { 
-            return "No Error"; 
-        },
-        LMSGetDiagnostic: function(errorCode) { 
-            return ""; 
-        }
+        LMSInitialize: function(param) { console.log("SCORM: LMSInitialize called."); return "true"; },
+        LMSFinish: function(param) { console.log("SCORM: LMSFinish called."); return "true"; },
+        LMSGetValue: function(element) { console.log("SCORM: LMSGetValue called for " + element); return ""; },
+        LMSSetValue: function(element, value) { console.log(`SCORM: LMSSetValue called for ${element} with value ${value}`); return "true"; },
+        LMSCommit: function(param) { console.log("SCORM: LMSCommit called."); return "true"; },
+        LMSGetLastError: function() { return "0"; },
+        LMSGetErrorString: function(errorCode) { return "No Error"; },
+        LMSGetDiagnostic: function(errorCode) { return ""; }
     };
 
-    // Helper function used by SCORM content to find the API
     window.findAPI = function(win) {
         if (win.API) {
             return win.API;
