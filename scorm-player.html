@@ -38,109 +38,100 @@
   </div>
 
   <script>
-    // Your Supabase config
-    const SUPABASE_URL           = 'https://kfksfnzpudycqbcftrev.supabase.co';
-    const SUPABASE_ANON_KEY      = 'your-anon-key';      // ← replace with real anon key
-    const SUPABASE_FUNCTIONS_URL = SUPABASE_URL + '/functions/v1';
+    // 1. Supabase config
+    const SUPABASE_URL       = 'https://kfksfnzpudycqbcftrev.supabase.co';
+    const SUPABASE_ANON_KEY  = 'YOUR_ANON_KEY_HERE';  // ← replace with your anon key
+    const FUNCTIONS_BASE_URL = `${SUPABASE_URL}/functions/v1`;
 
-    // Initialize Supabase client (for auth only)
+    // 2. Init Supabase client (auth only)
     const supabase = window.supabase.createClient(
       SUPABASE_URL,
       SUPABASE_ANON_KEY
     );
 
+    // 3. UI references
     const messageDiv = document.getElementById('message');
     const iframe     = document.getElementById('course-iframe');
     const courseSlug = new URLSearchParams(window.location.search).get('course');
 
-    let userAccessToken = null;
-    let courseLaunched  = false;
+    let userToken = null;
+    let launched  = false;
 
-    async function loadCourseFile(filePath) {
-      if (!userAccessToken) throw new Error("Session missing");
-
-      const url = `${SUPABASE_FUNCTIONS_URL}/proxy-scorm/` +
-                  `${courseSlug}/${filePath}?token=${userAccessToken}`;
-
+    // 4. Fetch any file (manifest, HTML, CSS, JS, etc.) via your Edge Function
+    async function fetchScormFile(path) {
+      if (!userToken) throw new Error('Not authenticated');
+      const url = `${FUNCTIONS_BASE_URL}/proxy-scorm/${courseSlug}/${path}?token=${userToken}`;
       const res = await fetch(url, {
-        headers: {
-          apikey: SUPABASE_ANON_KEY
-        }
+        headers: { apikey: SUPABASE_ANON_KEY }
       });
-
       if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(`${filePath} loading failed (${res.status}): ${txt}`);
+        const text = await res.text();
+        throw new Error(`${path} failed (${res.status}): ${text}`);
       }
-
       return res.arrayBuffer();
     }
 
-    function extractLaunchUrl(manifestXml) {
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(manifestXml, "application/xml");
-
-      // find resource[@href]
-      const resEl = xmlDoc.querySelector('resource[href]');
-      if (resEl) return resEl.getAttribute('href');
-
-      // fallback: organization default → item identifierref
-      const defItem = xmlDoc.querySelector('organization[default="true"] > item[identifierref]');
-      if (defItem) {
-        const ref = defItem.getAttribute('identifierref');
-        const resourceByRef = xmlDoc.querySelector(`resource[identifier="${ref}"]`);
-        if (resourceByRef) return resourceByRef.getAttribute('href');
+    // 5. Parse imsmanifest.xml to find launch file
+    function getLaunchPath(xmlText) {
+      const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+      const resource = doc.querySelector('resource[href]');
+      if (resource) return resource.getAttribute('href');
+      // fallback to default organization→item
+      const defaultItem = doc.querySelector('organization[default="true"] > item[identifierref]');
+      if (defaultItem) {
+        const ref = defaultItem.getAttribute('identifierref');
+        const byRef = doc.querySelector(`resource[identifier="${ref}"]`);
+        if (byRef) return byRef.getAttribute('href');
       }
-
       return 'index.html';
     }
 
+    // 6. Launch the course by setting the iframe src
     async function launchCourse() {
-      if (courseLaunched) return;
-      courseLaunched = true;
-      messageDiv.textContent = "Fetching imsmanifest.xml…";
+      if (launched) return;
+      launched = true;
+      messageDiv.textContent = 'Loading IMS manifest…';
 
       try {
-        const buf      = await loadCourseFile('imsmanifest.xml');
-        const xmlText  = new TextDecoder().decode(buf);
-        const launch   = extractLaunchUrl(xmlText);
+        const buf     = await fetchScormFile('imsmanifest.xml');
+        const xmlText = new TextDecoder().decode(buf);
+        const launch  = getLaunchPath(xmlText);
 
-        messageDiv.textContent = "Launching course…";
-        const iframeUrl = `${SUPABASE_FUNCTIONS_URL}/proxy-scorm/` +
-                          `${courseSlug}/${launch}?token=${userAccessToken}`;
-        iframe.src = iframeUrl;
-        messageDiv.textContent = "Course launched.";
-        messageDiv.style.color = "green";
-
+        messageDiv.textContent = 'Launching course…';
+        iframe.src = `${FUNCTIONS_BASE_URL}/proxy-scorm/${courseSlug}/${launch}?token=${userToken}`;
+        messageDiv.textContent = 'Course launched.';
+        messageDiv.style.color = 'green';
       } catch (err) {
         messageDiv.textContent = `Error: ${err.message}`;
       }
     }
 
+    // 7. Initialize auth session and start
     async function init() {
       if (!courseSlug) {
-        messageDiv.textContent = "Course slug missing from URL.";
+        messageDiv.textContent = 'Course slug missing in URL.';
         return;
       }
-      messageDiv.textContent = "Checking authentication…";
+      messageDiv.textContent = 'Checking authentication…';
 
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.access_token) {
-        userAccessToken = session.access_token;
+        userToken = session.access_token;
         launchCourse();
       } else {
-        messageDiv.textContent = "Authentication required to view course.";
+        messageDiv.textContent = 'Authentication required to view course.';
       }
     }
 
+    // 8. Wire up events
     document.addEventListener('DOMContentLoaded', () => {
       init();
       supabase.auth.onAuthStateChange((_, session) => {
         if (session?.access_token) {
-          userAccessToken = session.access_token;
+          userToken = session.access_token;
           launchCourse();
         } else {
-          messageDiv.textContent = "Authentication required to view course.";
+          messageDiv.textContent = 'Authentication required to view course.';
         }
       });
     });
