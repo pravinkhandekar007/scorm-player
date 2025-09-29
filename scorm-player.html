@@ -1,195 +1,167 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>SCORM Course Player</title>
-    <style>
-        body { margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4; }
-        #player-container { width: 100%; max-width: 1200px; margin: 20px auto; background-color: white; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        #course-iframe { width: 100%; height: 600px; border: none; }
-        #message { padding: 20px; text-align: center; color: red; }
-    </style>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <meta charset="UTF-8" />
+  <title>SCORM Course Player</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f4;
+    }
+    #player-container {
+      width: 100%;
+      max-width: 1200px;
+      margin: 20px auto;
+      background-color: white;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+    #course-iframe {
+      width: 100%;
+      height: 600px;
+      border: none;
+    }
+    #message {
+      padding: 20px;
+      text-align: center;
+      color: red;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-
-<div id="player-container">
+  <div id="player-container">
     <h2>SCORM Course Player</h2>
     <div id="message">Loading...</div>
-    <iframe id="course-iframe" src="" allowfullscreen></iframe>
-</div>
+    <iframe id="course-iframe" allowfullscreen></iframe>
+  </div>
 
-<script>
-    // =========================================================
-    // 1. CONFIGURATION
-    // CRITICAL: Replace these placeholders with your actual Supabase details
-    const SUPABASE_URL = 'https://kfksfnzpudycqbcftrev.supabase.co'; 
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs'; 
-
+  <script>
+    const SUPABASE_URL = 'https://kfksfnzpudycqbcftrev.supabase.co';
+    const SUPABASE_ANON_KEY = 'your-anon-key'; // Replace with your actual anon key
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    
+
     const messageDiv = document.getElementById('message');
     const iframe = document.getElementById('course-iframe');
     const courseSlug = new URLSearchParams(window.location.search).get('course');
-    
-    // Global variable to hold the token, set by the auth listener
+
     let userAccessToken = null;
+    let courseLaunched = false;
 
-    // =========================================================
-    // 2. AUTHORIZATION AND FILE FETCHING 
-    // This function runs the initial fetch for imsmanifest.xml
     async function loadCourseFile(filePath) {
-        // We MUST send the token for this initial request via header
-        if (!userAccessToken) {
-            throw new Error("User not authorized. Session missing.");
+      if (!userAccessToken) throw new Error("User not authorized. Session missing.");
+
+      const fileUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${filePath}`;
+      const response = await fetch(fileUrl, {
+        headers: {
+          Authorization: `Bearer ${userAccessToken}`,
+          apikey: SUPABASE_ANON_KEY
         }
-        
-        const fileUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${filePath}`;
+      });
 
-        const response = await fetch(fileUrl, {
-            method: 'GET',
-            headers: {
-                // Token sent via HEADER for the initial manifest request
-                'Authorization': `Bearer ${userAccessToken}`, 
-                'apikey': SUPABASE_ANON_KEY, 
-            }
-        });
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Error loading ${filePath}:`, errorText);
+        throw new Error(`Failed to load ${filePath}: ${response.status}`);
+      }
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`Error loading file ${filePath}: Status ${response.status}`, errorText);
-            throw new Error(`Failed to load file (${filePath}): Status ${response.status}`);
-        }
-
-        return response.arrayBuffer(); 
+      return response.arrayBuffer();
     }
 
-    // =========================================================
-    // 3. SCORM MANIFEST PARSING AND LAUNCH LOGIC
-
     function extractLaunchUrl(xmlString) {
-        try {
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(xmlString, "application/xml");
-            
-            if (xmlDoc.getElementsByTagName("parsererror").length) {
-                throw new Error("Invalid SCORM manifest XML.");
-            }
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlString, "application/xml");
 
-            const resource = xmlDoc.querySelector('resource[href]');
-            if (resource) {
-                return resource.getAttribute('href');
-            }
+      if (xmlDoc.getElementsByTagName("parsererror").length) {
+        throw new Error("Invalid SCORM manifest XML.");
+      }
 
-            const defaultActivity = xmlDoc.querySelector('organization[default="true"] > item[identifierref][identifier]');
-            if (defaultActivity) {
-                const identifierRef = defaultActivity.getAttribute('identifierref');
-                const resourceByRef = xmlDoc.querySelector(`resource[identifier="${identifierRef}"][href]`);
-                if (resourceByRef) {
-                    return resourceByRef.getAttribute('href');
-                }
-            }
-            return 'index.html'; 
-            
-        } catch (e) {
-            messageDiv.textContent = `Error processing manifest: ${e.message}`;
-            return null;
-        }
+      const resource = xmlDoc.querySelector('resource[href]');
+      if (resource) return resource.getAttribute('href');
+
+      const defaultItem = xmlDoc.querySelector('organization[default="true"] > item[identifierref]');
+      if (defaultItem) {
+        const ref = defaultItem.getAttribute('identifierref');
+        const resourceByRef = xmlDoc.querySelector(`resource[identifier="${ref}"][href]`);
+        if (resourceByRef) return resourceByRef.getAttribute('href');
+      }
+
+      return 'index.html';
     }
 
     async function launchCourse() {
-        messageDiv.textContent = "Fetching manifest...";
-        
-        try {
-            // 1. Fetch the imsmanifest.xml file (Auth done via Header)
-            const manifestArrayBuffer = await loadCourseFile('imsmanifest.xml');
-            
-            const manifestString = new TextDecoder('utf-8').decode(manifestArrayBuffer);
+      if (courseLaunched) return;
+      courseLaunched = true;
 
-            // 2. Extract the launch URL
-            const launchUrl = extractLaunchUrl(manifestString);
+      messageDiv.textContent = "Fetching SCORM manifest...";
 
-            if (!launchUrl) {
-                messageDiv.textContent = "Error: Failed to determine the course launch URL from manifest.";
-                return;
-            }
+      try {
+        const manifestBuffer = await loadCourseFile('imsmanifest.xml');
+        const manifestText = new TextDecoder().decode(manifestBuffer);
+        const launchUrl = extractLaunchUrl(manifestText);
 
-            // 3. Prepare the final launch URL to the proxy function
-            let finalLaunchPath = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${launchUrl}`;
-            
-            // 🎯 CRITICAL FIX: Append the JWT as a query parameter for the iframe's initial load.
-            // This token is available to the Edge Function via req.url query parameters.
-            if (userAccessToken) {
-                finalLaunchPath += `?token=${userAccessToken}`;
-            }
-            
-            // 4. Set the iframe source
-            iframe.src = finalLaunchPath;
-            messageDiv.textContent = `Course content launched.`;
-            messageDiv.style.color = 'green';
-            
-        } catch (error) {
-            messageDiv.textContent = `Course Load Error: ${error.message}`;
-            console.error('Final Load Error:', error);
-        }
+        if (!launchUrl) throw new Error("Could not determine launch file.");
+
+        const iframeUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${launchUrl}?token=${userAccessToken}`;
+        iframe.src = iframeUrl;
+        messageDiv.textContent = "Course launched.";
+        messageDiv.style.color = "green";
+      } catch (err) {
+        messageDiv.textContent = `Error: ${err.message}`;
+        console.error("Launch error:", err);
+      }
     }
 
-    // =========================================================
-    // 4. SCORM API IMPLEMENTATION (Minimal Stub) (Kept the same)
-    
     window.API = {
-        LMSInitialize: function(param) { console.log("SCORM: LMSInitialize called."); return "true"; },
-        LMSFinish: function(param) { console.log("SCORM: LMSFinish called."); return "true"; },
-        LMSGetValue: function(element) { console.log("SCORM: LMSGetValue called for " + element); return ""; },
-        LMSSetValue: function(element, value) { console.log(`SCORM: LMSSetValue called for ${element} with value ${value}`); return "true"; },
-        LMSCommit: function(param) { console.log("SCORM: LMSCommit called."); return "true"; },
-        LMSGetLastError: function() { return "0"; },
-        LMSGetErrorString: function(errorCode) { return "No Error"; },
-        LMSGetDiagnostic: function(errorCode) { return ""; }
+      LMSInitialize: () => "true",
+      LMSFinish: () => "true",
+      LMSGetValue: (e) => "",
+      LMSSetValue: (e, v) => "true",
+      LMSCommit: () => "true",
+      LMSGetLastError: () => "0",
+      LMSGetErrorString: () => "No Error",
+      LMSGetDiagnostic: () => ""
     };
 
     window.findAPI = function(win) {
-        if (win.API) {
-            return win.API;
-        } else if (win.parent && win.parent !== win) {
-            return findAPI(win.parent);
-        } else if (win.opener && win.opener !== win) {
-            return findAPI(win.opener);
-        }
-        return null;
+      if (win.API) return win.API;
+      if (win.parent && win.parent !== win) return findAPI(win.parent);
+      if (win.opener && win.opener !== win) return findAPI(win.opener);
+      return null;
     };
 
-    // =========================================================
-    // 5. INITIALIZATION (Wait for Supabase session)
-    
+    async function initializeSession() {
+      if (!courseSlug) {
+        messageDiv.textContent = "Missing course slug in URL.";
+        return;
+      }
+
+      messageDiv.textContent = "Checking user session...";
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        userAccessToken = session.access_token;
+        launchCourse();
+      } else {
+        messageDiv.textContent = "User not authenticated. Please sign in.";
+      }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
-        if (!courseSlug) {
-            messageDiv.textContent = "Error: Missing 'course' slug in the URL.";
-            return;
+      initializeSession();
+
+      supabase.auth.onAuthStateChange((event, session) => {
+        if (session?.access_token) {
+          userAccessToken = session.access_token;
+          launchCourse();
+        } else {
+          userAccessToken = null;
+          messageDiv.textContent = "Authentication required to view course.";
+          messageDiv.style.color = "red";
         }
-
-        messageDiv.textContent = "Waiting for user session...";
-        
-        // Wait for auth state change to ensure the session is fully restored
-        supabase.auth.onAuthStateChange((event, session) => {
-            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || (event === 'INITIAL_SESSION' && session)) {
-                
-                // If the session is good, store the token globally
-                userAccessToken = session.access_token;
-                
-                // Only launch the course once the token is retrieved
-                launchCourse();
-                
-            } else if (event === 'SIGNED_OUT' || (event === 'INITIAL_SESSION' && !session)) {
-                // User is signed out
-                userAccessToken = null;
-                messageDiv.textContent = "Authentication Failed: User must be signed in to view this course.";
-                messageDiv.style.color = 'red';
-            }
-        });
+      });
     });
-
-</script>
-
+  </script>
 </body>
 </html>
