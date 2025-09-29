@@ -113,24 +113,6 @@
       }
     }
 
-    window.API = {
-      LMSInitialize: () => "true",
-      LMSFinish: () => "true",
-      LMSGetValue: (e) => "",
-      LMSSetValue: (e, v) => "true",
-      LMSCommit: () => "true",
-      LMSGetLastError: () => "0",
-      LMSGetErrorString: () => "No Error",
-      LMSGetDiagnostic: () => ""
-    };
-
-    window.findAPI = function(win) {
-      if (win.API) return win.API;
-      if (win.parent && win.parent !== win) return findAPI(win.parent);
-      if (win.opener && win.opener !== win) return findAPI(win.opener);
-      return null;
-    };
-
     async function initializeSession() {
       if (!courseSlug) {
         messageDiv.textContent = "Missing course slug in URL.";
@@ -144,7 +126,7 @@
         userAccessToken = session.access_token;
         launchCourse();
       } else {
-        messageDiv.textContent = "User not authenticated. Please sign in.";
+        messageDiv.textContent = "Authentication required to view course.";
       }
     }
 
