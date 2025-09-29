@@ -22,7 +22,7 @@
 <script>
     // =========================================================
     // 1. CONFIGURATION
-    // IMPORTANT: Replace these placeholders with your actual Supabase details
+    // CRITICAL: Replace these placeholders with your actual Supabase details
     const SUPABASE_URL = 'https://kfksfnzpudycqbcftrev.supabase.co'; 
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs'; 
 
@@ -32,30 +32,25 @@
     const iframe = document.getElementById('course-iframe');
     const courseSlug = new URLSearchParams(window.location.search).get('course');
     
-    // Global variable to hold the token, set by the listener
+    // Global variable to hold the token, set by the auth listener
     let userAccessToken = null;
 
     // =========================================================
-    // 2. AUTHORIZATION AND FILE FETCHING (CRITICAL FIX: Use global token)
-    
+    // 2. AUTHORIZATION AND FILE FETCHING 
+    // This function runs the initial fetch for imsmanifest.xml
     async function loadCourseFile(filePath) {
-        // If the file is the initial manifest, we MUST send the token.
-        // If it's a content file, the Edge Function should allow it, but we send it just in case.
+        // We MUST send the token for this initial request via header
         if (!userAccessToken) {
-             // For debugging: If the token is still null here, the auth check failed.
-            console.error("loadCourseFile called without a token. This should only happen if auth failed.");
+            throw new Error("User not authorized. Session missing.");
         }
         
-        // Use the token if it exists; otherwise, send an empty header (Edge Function handles the check)
-        const authorizationHeader = userAccessToken ? `Bearer ${userAccessToken}` : '';
-
-        // Construct the URL to the proxy-scorm Edge Function
         const fileUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${filePath}`;
 
         const response = await fetch(fileUrl, {
             method: 'GET',
             headers: {
-                'Authorization': authorizationHeader, 
+                // Token sent via HEADER for the initial manifest request
+                'Authorization': `Bearer ${userAccessToken}`, 
                 'apikey': SUPABASE_ANON_KEY, 
             }
         });
@@ -70,7 +65,7 @@
     }
 
     // =========================================================
-    // 3. SCORM MANIFEST PARSING AND LAUNCH LOGIC (Kept the same)
+    // 3. SCORM MANIFEST PARSING AND LAUNCH LOGIC
 
     function extractLaunchUrl(xmlString) {
         try {
@@ -78,12 +73,10 @@
             const xmlDoc = parser.parseFromString(xmlString, "application/xml");
             
             if (xmlDoc.getElementsByTagName("parsererror").length) {
-                console.error("XML Parsing Error:", xmlDoc.getElementsByTagName("parsererror")[0].textContent);
                 throw new Error("Invalid SCORM manifest XML.");
             }
 
             const resource = xmlDoc.querySelector('resource[href]');
-
             if (resource) {
                 return resource.getAttribute('href');
             }
@@ -108,7 +101,7 @@
         messageDiv.textContent = "Fetching manifest...";
         
         try {
-            // 1. Fetch the imsmanifest.xml file using the authorized function
+            // 1. Fetch the imsmanifest.xml file (Auth done via Header)
             const manifestArrayBuffer = await loadCourseFile('imsmanifest.xml');
             
             const manifestString = new TextDecoder('utf-8').decode(manifestArrayBuffer);
@@ -122,7 +115,13 @@
             }
 
             // 3. Prepare the final launch URL to the proxy function
-            const finalLaunchPath = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${launchUrl}`;
+            let finalLaunchPath = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${launchUrl}`;
+            
+            // 🎯 CRITICAL FIX: Append the JWT as a query parameter for the iframe's initial load.
+            // This token is available to the Edge Function via req.url query parameters.
+            if (userAccessToken) {
+                finalLaunchPath += `?token=${userAccessToken}`;
+            }
             
             // 4. Set the iframe source
             iframe.src = finalLaunchPath;
@@ -136,7 +135,7 @@
     }
 
     // =========================================================
-    // 4. SCORM API IMPLEMENTATION (Minimal Stub for Communication) (Kept the same)
+    // 4. SCORM API IMPLEMENTATION (Minimal Stub) (Kept the same)
     
     window.API = {
         LMSInitialize: function(param) { console.log("SCORM: LMSInitialize called."); return "true"; },
@@ -161,7 +160,7 @@
     };
 
     // =========================================================
-    // 5. INITIALIZATION (CRITICAL FIX: Wait for Supabase session)
+    // 5. INITIALIZATION (Wait for Supabase session)
     
     document.addEventListener('DOMContentLoaded', () => {
         if (!courseSlug) {
@@ -171,7 +170,7 @@
 
         messageDiv.textContent = "Waiting for user session...";
         
-        // 🎯 FIX: Listen for auth state change to ensure the session is fully restored
+        // Wait for auth state change to ensure the session is fully restored
         supabase.auth.onAuthStateChange((event, session) => {
             if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || (event === 'INITIAL_SESSION' && session)) {
                 
@@ -182,7 +181,7 @@
                 launchCourse();
                 
             } else if (event === 'SIGNED_OUT' || (event === 'INITIAL_SESSION' && !session)) {
-                // If the user is definitely signed out, stop loading and show error
+                // User is signed out
                 userAccessToken = null;
                 messageDiv.textContent = "Authentication Failed: User must be signed in to view this course.";
                 messageDiv.style.color = 'red';
@@ -191,5 +190,6 @@
     });
 
 </script>
+
 </body>
 </html>
