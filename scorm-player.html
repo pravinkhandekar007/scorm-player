@@ -38,52 +38,57 @@
   </div>
 
   <script>
-    const SUPABASE_URL = 'https://kfksfnzpudycqbcftrev.supabase.co';
-    const SUPABASE_ANON_KEY = 'your-anon-key'; // Replace with your actual anon key
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // Your Supabase config
+    const SUPABASE_URL           = 'https://kfksfnzpudycqbcftrev.supabase.co';
+    const SUPABASE_ANON_KEY      = 'your-anon-key';      // ← replace with real anon key
+    const SUPABASE_FUNCTIONS_URL = SUPABASE_URL + '/functions/v1';
+
+    // Initialize Supabase client (for auth only)
+    const supabase = window.supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY
+    );
 
     const messageDiv = document.getElementById('message');
-    const iframe = document.getElementById('course-iframe');
+    const iframe     = document.getElementById('course-iframe');
     const courseSlug = new URLSearchParams(window.location.search).get('course');
 
     let userAccessToken = null;
-    let courseLaunched = false;
+    let courseLaunched  = false;
 
     async function loadCourseFile(filePath) {
-      if (!userAccessToken) throw new Error("User not authorized. Session missing.");
+      if (!userAccessToken) throw new Error("Session missing");
 
-      const fileUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${filePath}`;
-      const response = await fetch(fileUrl, {
+      const url = `${SUPABASE_FUNCTIONS_URL}/proxy-scorm/` +
+                  `${courseSlug}/${filePath}?token=${userAccessToken}`;
+
+      const res = await fetch(url, {
         headers: {
-          Authorization: `Bearer ${userAccessToken}`,
           apikey: SUPABASE_ANON_KEY
         }
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`Error loading ${filePath}:`, errorText);
-        throw new Error(`Failed to load ${filePath}: ${response.status}`);
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`${filePath} loading failed (${res.status}): ${txt}`);
       }
 
-      return response.arrayBuffer();
+      return res.arrayBuffer();
     }
 
-    function extractLaunchUrl(xmlString) {
+    function extractLaunchUrl(manifestXml) {
       const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+      const xmlDoc = parser.parseFromString(manifestXml, "application/xml");
 
-      if (xmlDoc.getElementsByTagName("parsererror").length) {
-        throw new Error("Invalid SCORM manifest XML.");
-      }
+      // find resource[@href]
+      const resEl = xmlDoc.querySelector('resource[href]');
+      if (resEl) return resEl.getAttribute('href');
 
-      const resource = xmlDoc.querySelector('resource[href]');
-      if (resource) return resource.getAttribute('href');
-
-      const defaultItem = xmlDoc.querySelector('organization[default="true"] > item[identifierref]');
-      if (defaultItem) {
-        const ref = defaultItem.getAttribute('identifierref');
-        const resourceByRef = xmlDoc.querySelector(`resource[identifier="${ref}"][href]`);
+      // fallback: organization default → item identifierref
+      const defItem = xmlDoc.querySelector('organization[default="true"] > item[identifierref]');
+      if (defItem) {
+        const ref = defItem.getAttribute('identifierref');
+        const resourceByRef = xmlDoc.querySelector(`resource[identifier="${ref}"]`);
         if (resourceByRef) return resourceByRef.getAttribute('href');
       }
 
@@ -93,33 +98,31 @@
     async function launchCourse() {
       if (courseLaunched) return;
       courseLaunched = true;
-
-      messageDiv.textContent = "Fetching SCORM manifest...";
+      messageDiv.textContent = "Fetching imsmanifest.xml…";
 
       try {
-        const manifestBuffer = await loadCourseFile('imsmanifest.xml');
-        const manifestText = new TextDecoder().decode(manifestBuffer);
-        const launchUrl = extractLaunchUrl(manifestText);
+        const buf      = await loadCourseFile('imsmanifest.xml');
+        const xmlText  = new TextDecoder().decode(buf);
+        const launch   = extractLaunchUrl(xmlText);
 
-        if (!launchUrl) throw new Error("Could not determine launch file.");
-
-        const iframeUrl = `${SUPABASE_URL}/functions/v1/proxy-scorm/${courseSlug}/${launchUrl}?token=${userAccessToken}`;
+        messageDiv.textContent = "Launching course…";
+        const iframeUrl = `${SUPABASE_FUNCTIONS_URL}/proxy-scorm/` +
+                          `${courseSlug}/${launch}?token=${userAccessToken}`;
         iframe.src = iframeUrl;
         messageDiv.textContent = "Course launched.";
         messageDiv.style.color = "green";
+
       } catch (err) {
         messageDiv.textContent = `Error: ${err.message}`;
-        console.error("Launch error:", err);
       }
     }
 
-    async function initializeSession() {
+    async function init() {
       if (!courseSlug) {
-        messageDiv.textContent = "Missing course slug in URL.";
+        messageDiv.textContent = "Course slug missing from URL.";
         return;
       }
-
-      messageDiv.textContent = "Checking user session...";
+      messageDiv.textContent = "Checking authentication…";
 
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.access_token) {
@@ -131,16 +134,13 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-      initializeSession();
-
-      supabase.auth.onAuthStateChange((event, session) => {
+      init();
+      supabase.auth.onAuthStateChange((_, session) => {
         if (session?.access_token) {
           userAccessToken = session.access_token;
           launchCourse();
         } else {
-          userAccessToken = null;
           messageDiv.textContent = "Authentication required to view course.";
-          messageDiv.style.color = "red";
         }
       });
     });
