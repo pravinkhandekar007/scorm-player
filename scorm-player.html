@@ -17,18 +17,19 @@
       background-color: white;
       box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
     }
-    #course-iframe {
-      width: 100%;
-      height: 600px;
-      border: none;
-    }
     #message {
       padding: 20px;
       text-align: center;
       color: red;
     }
+    #course-iframe {
+      width: 100%;
+      height: 600px;
+      border: none;
+      display: none;
+    }
     #login-link {
-      display: block;
+      display: none;
       margin-top: 10px;
       text-align: center;
     }
@@ -39,79 +40,98 @@
   <div id="player-container">
     <h2>SCORM Course Player</h2>
     <div id="message">Loading...</div>
-    <a id="login-link" href="login.html" style="display:none;">Click here to log in</a>
-    <iframe id="course-iframe" allowfullscreen style="display:none;"></iframe>
+    <a id="login-link" href="login.html">Click here to log in</a>
+    <iframe id="course-iframe" allowfullscreen></iframe>
   </div>
 
   <script>
+    // 1. Supabase config
     const SUPABASE_URL       = 'https://kfksfnzpudycqbcftrev.supabase.co';
-    const SUPABASE_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs';  // ← replace
-    const FN_BASE            = `${SUPABASE_URL}/functions/v1`;
+    const SUPABASE_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs'; // ← replace
+    const FUNCTIONS_BASE_URL = `${SUPABASE_URL}/functions/v1`;
 
-    const supabase  = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // 2. Init Supabase (auth)
+    const supabase = window.supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY
+    );
+
+    // 3. DOM refs
     const message   = document.getElementById('message');
     const loginLink = document.getElementById('login-link');
     const iframe    = document.getElementById('course-iframe');
-    const course    = new URLSearchParams(window.location.search).get('course');
+    const params    = new URLSearchParams(window.location.search);
+    const course    = params.get('course');
 
-    let token = null, launched = false;
+    let token   = null;
+    let launched = false;
 
-    async function fetchFile(path) {
-      const url = `${FN_BASE}/proxy-scorm/${course}/${path}?token=${token}`;
-      const res = await fetch(url, { headers: { apikey: SUPABASE_ANON_KEY } });
-      if (!res.ok) throw new Error(`${path} failed (${res.status})`);
+    // 4. Fetch any SCORM file via Edge Function
+    async function fetchScormFile(path) {
+      if (!token) throw new Error('Not authenticated');
+      const url = `${FUNCTIONS_BASE_URL}/proxy-scorm/${course}/${path}?token=${token}`;
+      const res = await fetch(url, {
+        headers: { apikey: SUPABASE_ANON_KEY }
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`${path} failed (${res.status}): ${txt}`);
+      }
       return res.arrayBuffer();
     }
 
-    function parseLaunch(xmlText) {
+    // 5. Parse launch path from manifest
+    function getLaunchPath(xmlText) {
       const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
       const r   = doc.querySelector('resource[href]');
       if (r) return r.getAttribute('href');
       return 'index.html';
     }
 
-    async function launch() {
+    // 6. Launch course
+    async function launchCourse() {
       if (launched) return;
       launched = true;
       message.textContent = 'Loading manifest…';
       try {
-        const buf     = await fetchFile('imsmanifest.xml');
-        const text    = new TextDecoder().decode(buf);
-        const launchF = parseLaunch(text);
-        message.textContent = 'Launching…';
-        iframe.src       = `${FN_BASE}/proxy-scorm/${course}/${launchF}?token=${token}`;
+        const buf     = await fetchScormFile('imsmanifest.xml');
+        const xmlText = new TextDecoder().decode(buf);
+        const launch  = getLaunchPath(xmlText);
+
+        message.textContent = 'Launching course…';
+        iframe.src          = `${FUNCTIONS_BASE_URL}/proxy-scorm/${course}/${launch}?token=${token}`;
         iframe.style.display = 'block';
-        message.style.color  = 'green';
         message.textContent  = '';
       } catch (e) {
         message.textContent = `Error: ${e.message}`;
       }
     }
 
+    // 7. Initialize auth
     async function init() {
       if (!course) {
-        message.textContent = 'Missing course slug.';
+        message.textContent = 'Course slug missing.';
         return;
       }
       message.textContent = 'Checking authentication…';
-
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.access_token) {
-        token      = session.access_token;
-        launch();
+        token = session.access_token;
+        launchCourse();
       } else {
-        message.textContent = 'Authentication required to view course.';
+        message.textContent = 'Authentication required.';
         loginLink.style.display = 'block';
       }
     }
 
+    // 8. Wire up events
     document.addEventListener('DOMContentLoaded', () => {
       init();
       supabase.auth.onAuthStateChange((_, sess) => {
         if (sess?.access_token) {
-          token      = sess.access_token;
+          token          = sess.access_token;
           loginLink.style.display = 'none';
-          launch();
+          launchCourse();
         }
       });
     });
