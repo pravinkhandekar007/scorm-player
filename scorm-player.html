@@ -4,131 +4,66 @@
   <meta charset="UTF-8" />
   <title>SCORM Course Player</title>
   <style>
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: Arial, sans-serif;
-      background-color: #f4f4f4;
-    }
-    #player-container {
-      width: 100%;
-      max-width: 1200px;
-      margin: 20px auto;
-      background-color: white;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-    }
-    #message {
-      padding: 20px;
-      text-align: center;
-      color: red;
-    }
-    #course-iframe {
-      width: 100%;
-      height: 600px;
-      border: none;
-      display: none;
-    }
-    #login-link {
-      display: none;
-      margin-top: 10px;
-      text-align: center;
-    }
+    body { margin:0; padding:20px; font-family:Arial,sans-serif; background:#f4f4f4; }
+    #container { max-width:1200px; margin:20px auto; background:#fff; box-shadow:0 0 10px rgba(0,0,0,0.1); }
+    h2 { margin:0; padding:20px; background:#2c3e50; color:#fff; }
+    #message { padding:20px; text-align:center; }
+    iframe { width:100%; height:80vh; border:none; display:none; }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-  <div id="player-container">
-    <h2>SCORM Course Player</h2>
-    <div id="message">Loading...</div>
-    <a id="login-link" href="login.html">Click here to log in</a>
-    <iframe id="course-iframe" allowfullscreen></iframe>
+  <div id="container">
+    <h2>🎓 SCORM Course Player</h2>
+    <div id="message">Loading…</div>
+    <iframe id="courseFrame" allowfullscreen></iframe>
   </div>
 
   <script>
-    // Configuration
-    const SUPABASE_URL       = 'https://kfksfnzpudycqbcftrev.supabase.co';
-    const SUPABASE_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs';
-    const FUNCTIONS_BASE_URL = `${SUPABASE_URL}/functions/v1`;
-
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-    // DOM references
-    const message   = document.getElementById('message');
-    const loginLink = document.getElementById('login-link');
-    const iframe    = document.getElementById('course-iframe');
-    const params    = new URLSearchParams(window.location.search);
-    const course    = params.get('course');
-
-    let token   = null;
-    let launched = false;
-
-    // Fetch SCORM file via proxy with token auth
-    async function fetchScormFile(path) {
-      if (!token) throw new Error('Not authenticated');
-      const url = `${FUNCTIONS_BASE_URL}/proxy-scorm/${course}/${path}?token=${token}`;
-      const res = await fetch(url, { headers: { apikey: SUPABASE_ANON_KEY } });
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(`${path} failed (${res.status}): ${txt}`);
-      }
-      return res.arrayBuffer();
-    }
-
-    // Parse launch path from IMS manifest XML text
-    function getLaunchPath(xmlText) {
-      const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
-      const resource = doc.querySelector('resource[href]');
-      if (resource) return resource.getAttribute('href');
-      return 'index.html';
-    }
-
-    // Launch course inside iframe
-    async function launchCourse() {
-      if (launched) return;
-      launched = true;
-      message.textContent = 'Loading manifest…';
-      try {
-        const buf = await fetchScormFile('imsmanifest.xml');
-        const xmlText = new TextDecoder().decode(buf);
-        const launch = getLaunchPath(xmlText);
-
-        message.textContent = 'Launching course…';
-        iframe.src = `${FUNCTIONS_BASE_URL}/proxy-scorm/${course}/${launch}?token=${token}`;
-        iframe.style.display = 'block';
-        message.textContent = '';
-      } catch (e) {
-        message.textContent = `Error: ${e.message}`;
-      }
-    }
-
-    // Initialize authentication and start course
-    async function init() {
-      if (!course) {
-        message.textContent = 'Course slug missing.';
+    (async () => {
+      const msg = document.getElementById('message');
+      const frame = document.getElementById('courseFrame');
+      const params = new URLSearchParams(window.location.search);
+      const courseSlug = params.get('course');
+      if (!courseSlug) {
+        msg.textContent = 'Error: Missing course slug.';
         return;
       }
-      message.textContent = 'Checking authentication…';
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.access_token) {
-        token = session.access_token;
-        launchCourse();
-      } else {
-        message.textContent = 'Authentication required.';
-        loginLink.style.display = 'block';
-      }
-    }
 
-    // Setup event listeners
-    document.addEventListener('DOMContentLoaded', () => {
-      init();
-      supabase.auth.onAuthStateChange((_, sess) => {
-        if (sess?.access_token) {
-          token = sess.access_token;
-          loginLink.style.display = 'none';
-          launchCourse();
-        }
-      });
-    });
+      // Base public URL for the course files
+      const baseUrl = 
+        `https://kfksfnzpudycqbcftrev.supabase.co/storage/v1/object/public/` +
+        `scorm-packages/` + courseSlug.split('/')[0] + `/${courseSlug}/`;
+
+      // 1. Fetch the manifest
+      msg.textContent = 'Fetching manifest…';
+      let manifestText;
+      try {
+        const res = await fetch(baseUrl + 'imsmanifest.xml');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        manifestText = await res.text();
+      } catch (err) {
+        msg.textContent = `Failed to load manifest: ${err.message}`;
+        return;
+      }
+
+      // 2. Parse launch file from manifest
+      msg.textContent = 'Parsing manifest…';
+      let launchFile = 'index.html'; // default fallback
+      try {
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(manifestText, 'application/xml');
+        const r = xml.querySelector('resource[href]');
+        if (r) launchFile = r.getAttribute('href') || launchFile;
+      } catch (err) {
+        // keep default
+      }
+
+      // 3. Launch course
+      msg.textContent = 'Launching course…';
+      frame.src = baseUrl + launchFile;
+      frame.style.display = 'block';
+      msg.style.display = 'none';
+    })();
   </script>
 </body>
 </html>
