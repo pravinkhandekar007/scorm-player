@@ -45,18 +45,14 @@
   </div>
 
   <script>
-    // 1. Supabase config
+    // Configuration
     const SUPABASE_URL       = 'https://kfksfnzpudycqbcftrev.supabase.co';
-    const SUPABASE_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs'; // ← replace
+    const SUPABASE_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs';
     const FUNCTIONS_BASE_URL = `${SUPABASE_URL}/functions/v1`;
 
-    // 2. Init Supabase (auth)
-    const supabase = window.supabase.createClient(
-      SUPABASE_URL,
-      SUPABASE_ANON_KEY
-    );
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // 3. DOM refs
+    // DOM references
     const message   = document.getElementById('message');
     const loginLink = document.getElementById('login-link');
     const iframe    = document.getElementById('course-iframe');
@@ -66,13 +62,11 @@
     let token   = null;
     let launched = false;
 
-    // 4. Fetch any SCORM file via Edge Function
+    // Fetch SCORM file via proxy with token auth
     async function fetchScormFile(path) {
       if (!token) throw new Error('Not authenticated');
       const url = `${FUNCTIONS_BASE_URL}/proxy-scorm/${course}/${path}?token=${token}`;
-      const res = await fetch(url, {
-        headers: { apikey: SUPABASE_ANON_KEY }
-      });
+      const res = await fetch(url, { headers: { apikey: SUPABASE_ANON_KEY } });
       if (!res.ok) {
         const txt = await res.text();
         throw new Error(`${path} failed (${res.status}): ${txt}`);
@@ -80,34 +74,34 @@
       return res.arrayBuffer();
     }
 
-    // 5. Parse launch path from manifest
+    // Parse launch path from IMS manifest XML text
     function getLaunchPath(xmlText) {
       const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
-      const r   = doc.querySelector('resource[href]');
-      if (r) return r.getAttribute('href');
+      const resource = doc.querySelector('resource[href]');
+      if (resource) return resource.getAttribute('href');
       return 'index.html';
     }
 
-    // 6. Launch course
+    // Launch course inside iframe
     async function launchCourse() {
       if (launched) return;
       launched = true;
       message.textContent = 'Loading manifest…';
       try {
-        const buf     = await fetchScormFile('imsmanifest.xml');
+        const buf = await fetchScormFile('imsmanifest.xml');
         const xmlText = new TextDecoder().decode(buf);
-        const launch  = getLaunchPath(xmlText);
+        const launch = getLaunchPath(xmlText);
 
         message.textContent = 'Launching course…';
-        iframe.src          = `${FUNCTIONS_BASE_URL}/proxy-scorm/${course}/${launch}?token=${token}`;
+        iframe.src = `${FUNCTIONS_BASE_URL}/proxy-scorm/${course}/${launch}?token=${token}`;
         iframe.style.display = 'block';
-        message.textContent  = '';
+        message.textContent = '';
       } catch (e) {
         message.textContent = `Error: ${e.message}`;
       }
     }
 
-    // 7. Initialize auth
+    // Initialize authentication and start course
     async function init() {
       if (!course) {
         message.textContent = 'Course slug missing.';
@@ -124,12 +118,12 @@
       }
     }
 
-    // 8. Wire up events
+    // Setup event listeners
     document.addEventListener('DOMContentLoaded', () => {
       init();
       supabase.auth.onAuthStateChange((_, sess) => {
         if (sess?.access_token) {
-          token          = sess.access_token;
+          token = sess.access_token;
           loginLink.style.display = 'none';
           launchCourse();
         }
