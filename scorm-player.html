@@ -29,7 +29,7 @@
         return;
       }
 
-      // 1. Fetch course metadata (using anon key in Bearer header)
+      // 1. Fetch course metadata from get-course function
       msg.textContent = 'Fetching course metadata…';
       let course;
       try {
@@ -48,19 +48,16 @@
         return;
       }
 
-      const basePath     = course.package_path;           // e.g. "userId/course-xxxx"
-      const defaultLaunch = course.launch_url || 'index.html';
+      // 2. Build proxy base URL for SCORM files
+      const proxyBaseUrl = 
+        `https://kfksfnzpudycqbcftrev.supabase.co/functions/v1/proxy-scorm/` +
+        `${course.package_path}/`;
 
-      // 2. Build public storage URL base
-      const baseUrl =
-        `https://kfksfnzpudycqbcftrev.supabase.co/storage/v1/object/public/` +
-        `scorm-packages/${basePath}/`;
-
-      // 3. Fetch and parse manifest
+      // 3. Fetch and parse imsmanifest.xml through proxy
       msg.textContent = 'Fetching manifest…';
       let manifestText;
       try {
-        const mf = await fetch(baseUrl + 'imsmanifest.xml');
+        const mf = await fetch(proxyBaseUrl + 'imsmanifest.xml');
         if (!mf.ok) throw new Error(`HTTP ${mf.status}`);
         manifestText = await mf.text();
       } catch (err) {
@@ -69,16 +66,18 @@
       }
 
       msg.textContent = 'Parsing manifest…';
-      let launchFile = defaultLaunch;
+      let launchFile = course.launch_url || 'index.html';
       try {
         const xml = new DOMParser().parseFromString(manifestText, 'application/xml');
         const r   = xml.querySelector('resource[href]');
         if (r) launchFile = r.getAttribute('href');
-      } catch {}
+      } catch {
+        // fallback to DB launch_url or 'index.html'
+      }
 
-      // 4. Launch the course
+      // 4. Load launch file in iframe via proxy URL
       msg.textContent = 'Launching course…';
-      frame.src = baseUrl + launchFile;
+      frame.src = proxyBaseUrl + launchFile;
       frame.style.display = 'block';
       msg.style.display = 'none';
     })();
