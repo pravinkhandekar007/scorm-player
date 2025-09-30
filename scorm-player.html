@@ -29,13 +29,17 @@
         return;
       }
 
-      // 1. Fetch course metadata (public, using anon key)
+      // 1. Fetch course metadata (using anon key in Bearer header)
       msg.textContent = 'Fetching course metadata…';
       let course;
       try {
         const res = await fetch(
           `https://kfksfnzpudycqbcftrev.supabase.co/functions/v1/get-course/${slug}`,
-          { headers: { apikey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs' } }
+          {
+            headers: {
+              "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtma3NmbnpwdWR5Y3FiY2Z0cmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODg1MzcsImV4cCI6MjA3NDI2NDUzN30.l0ApEczfprHX9m73tiCWzO2cJRGBpic9RDJWQsw7qfs"
+            }
+          }
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         course = await res.json();
@@ -47,7 +51,7 @@
       const basePath     = course.package_path;           // e.g. "userId/course-xxxx"
       const defaultLaunch = course.launch_url || 'index.html';
 
-      // 2. Build public storage URL base (preserve slash in basePath)
+      // 2. Build public storage URL base
       const baseUrl =
         `https://kfksfnzpudycqbcftrev.supabase.co/storage/v1/object/public/` +
         `scorm-packages/${basePath}/`;
