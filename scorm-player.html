@@ -23,42 +23,56 @@
       const msg = document.getElementById('message');
       const frame = document.getElementById('courseFrame');
       const params = new URLSearchParams(window.location.search);
-      const courseSlug = params.get('course');
-      if (!courseSlug) {
+      const slug = params.get('course');
+      if (!slug) {
         msg.textContent = 'Error: Missing course slug.';
         return;
       }
 
-      // Base public URL for the course files
+      // 1. Fetch course metadata to get package_path and (optional) launch_url
+      msg.textContent = 'Fetching course metadata…';
+      let course;
+      try {
+        const res = await fetch(
+          `https://kfksfnzpudycqbcftrev.supabase.co/functions/v1/get-course/${slug}`,
+          { headers: { apikey: '<YOUR_ANON_KEY>' } }
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        course = await res.json();
+      } catch (err) {
+        msg.textContent = `Metadata load failed: ${err.message}`;
+        return;
+      }
+
+      const basePath = course.package_path;          // e.g. "d85a78.../course-17590..."
+      const defaultLaunch = course.launch_url || 'index.html';
+
+      // 2. Build public storage URL base
       const baseUrl = 
         `https://kfksfnzpudycqbcftrev.supabase.co/storage/v1/object/public/` +
-        `scorm-packages/` + courseSlug.split('/')[0] + `/${courseSlug}/`;
+        `scorm-packages/${encodeURIComponent(basePath)}/`;
 
-      // 1. Fetch the manifest
+      // 3. Fetch and parse manifest
       msg.textContent = 'Fetching manifest…';
       let manifestText;
       try {
-        const res = await fetch(baseUrl + 'imsmanifest.xml');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        manifestText = await res.text();
+        const mf = await fetch(baseUrl + 'imsmanifest.xml');
+        if (!mf.ok) throw new Error(`HTTP ${mf.status}`);
+        manifestText = await mf.text();
       } catch (err) {
         msg.textContent = `Failed to load manifest: ${err.message}`;
         return;
       }
 
-      // 2. Parse launch file from manifest
       msg.textContent = 'Parsing manifest…';
-      let launchFile = 'index.html'; // default fallback
+      let launchFile = defaultLaunch;
       try {
-        const parser = new DOMParser();
-        const xml = parser.parseFromString(manifestText, 'application/xml');
+        const xml = new DOMParser().parseFromString(manifestText, 'application/xml');
         const r = xml.querySelector('resource[href]');
-        if (r) launchFile = r.getAttribute('href') || launchFile;
-      } catch (err) {
-        // keep default
-      }
+        if (r) launchFile = r.getAttribute('href');
+      } catch {}
 
-      // 3. Launch course
+      // 4. Launch the course
       msg.textContent = 'Launching course…';
       frame.src = baseUrl + launchFile;
       frame.style.display = 'block';
