@@ -3,7 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <title>Log In / Sign Up</title>
-  <style>/* your styles here */</style>
+  <style>
+    /* your styles here */
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f9f9f9; }
+    h2 { text-align: center; }
+    form { max-width: 400px; margin: auto; display: flex; flex-direction: column; gap: 10px; }
+    input { padding: 10px; font-size: 16px; }
+    button { padding: 12px; font-size: 16px; background: #007bff; color: white; border: none; cursor: pointer; }
+    button:hover { background: #0056b3; }
+    #status { text-align: center; margin-top: 10px; font-weight: bold; }
+  </style>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
@@ -33,10 +42,17 @@
         status.textContent = `Error: ${error.message}`;
       } else {
         status.textContent = 'Success! Redirecting…';
+
         const params = new URLSearchParams(window.location.search);
         const course = params.get('course');
-        // send user back to player
-        window.location.href = `scorm-player.html?course=${course}`;
+
+        // Redirect to player only if there is a valid course param
+        if (course && course !== "null" && course !== "undefined") {
+          window.location.href = `scorm-player.html?course=${encodeURIComponent(course)}`;
+        } else {
+          // Otherwise redirect somewhere safer, e.g. upload page or home
+          window.location.href = 'upload.html';  
+        }
       }
     });
   </script>
