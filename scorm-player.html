@@ -29,7 +29,7 @@
         return;
       }
 
-      // 1. Fetch course metadata
+      // 1. Fetch course metadata (public, using anon key)
       msg.textContent = 'Fetching course metadata…';
       let course;
       try {
@@ -44,11 +44,11 @@
         return;
       }
 
-      const basePath    = course.package_path;          // e.g. "d85a782e-3c95-4dc7-a4a1-3bee8a9cbe0e/course-1759248012287-..."
+      const basePath     = course.package_path;           // e.g. "userId/course-xxxx"
       const defaultLaunch = course.launch_url || 'index.html';
 
-      // 2. Build public storage URL base (do NOT URL-encode slashes)
-      const baseUrl = 
+      // 2. Build public storage URL base (preserve slash in basePath)
+      const baseUrl =
         `https://kfksfnzpudycqbcftrev.supabase.co/storage/v1/object/public/` +
         `scorm-packages/${basePath}/`;
 
