@@ -20,16 +20,16 @@
 
   <script>
     (async () => {
-      const msg = document.getElementById('message');
+      const msg   = document.getElementById('message');
       const frame = document.getElementById('courseFrame');
       const params = new URLSearchParams(window.location.search);
-      const slug = params.get('course');
+      const slug  = params.get('course');
       if (!slug) {
         msg.textContent = 'Error: Missing course slug.';
         return;
       }
 
-      // 1. Fetch course metadata to get package_path and (optional) launch_url
+      // 1. Fetch course metadata (no auth required, only anon key)
       msg.textContent = 'Fetching course metadata…';
       let course;
       try {
@@ -44,11 +44,11 @@
         return;
       }
 
-      const basePath = course.package_path;          // e.g. "d85a78.../course-17590..."
+      const basePath    = course.package_path;           // e.g. "userId/course-xxxx"
       const defaultLaunch = course.launch_url || 'index.html';
 
       // 2. Build public storage URL base
-      const baseUrl = 
+      const baseUrl =
         `https://kfksfnzpudycqbcftrev.supabase.co/storage/v1/object/public/` +
         `scorm-packages/${encodeURIComponent(basePath)}/`;
 
@@ -68,7 +68,7 @@
       let launchFile = defaultLaunch;
       try {
         const xml = new DOMParser().parseFromString(manifestText, 'application/xml');
-        const r = xml.querySelector('resource[href]');
+        const r   = xml.querySelector('resource[href]');
         if (r) launchFile = r.getAttribute('href');
       } catch {}
 
